@@ -1,0 +1,114 @@
+{
+  "verses": [
+    {
+      "id": 1,
+      "reference": "John 3:16",
+      "referenceCN": "约翰福音 3:16",
+      "english": "For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.",
+      "chinese": "神爱世人，甚至将他的独生子赐给他们，叫一切信他的，不至灭亡，反得永生。",
+      "keywords": ["神爱世人", "独生子", "不至灭亡", "反得永生"],
+      "version": "cuv",
+      "category": "grace"
+    },
+    {
+      "id": 2,
+      "reference": "Philippians 4:13",
+      "referenceCN": "腓立比书 4:13",
+      "english": "I can do all things through Christ who strengthens me.",
+      "chinese": "我靠着那加给我力量的，凡事都能做。",
+      "keywords": ["靠着", "加给我力量", "凡事都能做"],
+      "version": "cuv",
+      "category": "faith"
+    },
+    {
+      "id": 3,
+      "reference": "Proverbs 3:5-6",
+      "referenceCN": "箴言 3:5-6",
+      "english": "Trust in the Lord with all your heart and lean not on your own understanding; in all your ways submit to him, and he will make your paths straight.",
+      "chinese": "你要专心仰赖耶和华，不可倚靠自己的聪明，在你一切所行的事上都要认定他，他必指引你的路。",
+      "keywords": ["专心仰赖", "耶和华", "不可倚靠", "认定他", "指引你的路"],
+      "version": "cuv",
+      "category": "faith"
+    },
+    {
+      "id": 4,
+      "reference": "Psalm 23:1",
+      "referenceCN": "诗篇 23:1",
+      "english": "The Lord is my shepherd, I lack nothing.",
+      "chinese": "耶和华是我的牧者，我必不至缺乏。",
+      "keywords": ["耶和华", "我的牧者", "不至缺乏"],
+      "version": "cuv",
+      "category": "grace"
+    },
+    {
+      "id": 5,
+      "reference": "Romans 8:28",
+      "referenceCN": "罗马书 8:28",
+      "english": "And we know that in all things God works for the good of those who love him.",
+      "chinese": "我们晓得万事都互相效力，叫爱神的人得益处。",
+      "keywords": ["万事", "互相效力", "爱神的人", "得益处"],
+      "version": "cuv",
+      "category": "grace"
+    },
+    {
+      "id": 6,
+      "reference": "Isaiah 40:31",
+      "referenceCN": "以赛亚书 40:31",
+      "english": "But those who hope in the Lord will renew their strength.",
+      "chinese": "但那等候耶和华的必从新得力。",
+      "keywords": ["等候耶和华", "从新得力"],
+      "version": "cuv",
+      "category": "hope"
+    },
+    {
+      "id": 7,
+      "reference": "Jeremiah 29:11",
+      "referenceCN": "耶利米书 29:11",
+      "english": "For I know the plans I have for you, declares the Lord, plans to prosper you and not to harm you, plans to give you hope and a future.",
+      "chinese": "耶和华说：我知道我向你们所怀的意念是赐平安的意念，不是降灾祸的意念，要叫你们末后有指望。",
+      "keywords": ["赐平安", "末后有指望"],
+      "version": "cuv",
+      "category": "hope"
+    },
+    {
+      "id": 8,
+      "reference": "Matthew 11:28",
+      "referenceCN": "马太福音 11:28",
+      "english": "Come to me, all you who are weary and burdened, and I will give you rest.",
+      "chinese": "凡劳苦担重担的人可以到我这里来，我就使你们得安息。",
+      "keywords": ["劳苦担重担", "得安息"],
+      "version": "cuv",
+      "category": "hope"
+    },
+    {
+      "id": 9,
+      "reference": "Psalm 46:1",
+      "referenceCN": "诗篇 46:1",
+      "english": "God is our refuge and strength, an ever-present help in trouble.",
+      "chinese": "神是我们的避难所，是我们的力量，是我们在患难中随时的帮助。",
+      "keywords": ["避难所", "力量", "随时的帮助"],
+      "version": "cuv",
+      "category": "hope"
+    },
+    {
+      "id": 10,
+      "reference": "Mark 13:10",
+      "referenceCN": "马可福音 13:10",
+      "english": "And the gospel must first be preached to all nations.",
+      "chinese": "然而，福音必须先传给万民。",
+      "keywords": ["福音", "传给万民"],
+      "version": "cuv",
+      "category": "gospel"
+    },
+    {
+      "id": 11,
+      "reference": "Romans 1:16",
+      "referenceCN": "罗马书 1:16",
+      "english": "For I am not ashamed of the gospel, because it is the power of God that brings salvation to everyone who believes: first to the Jew, then to the Gentile.",
+      "chinese": "我不以福音为耻；这福音本是神的大能，要救一切相信的，先是犹太人，后是希腊人。",
+      "keywords": ["不以福音为耻", "神的大能", "救一切相信的"],
+      "version": "cuv",
+      "category": "gospel"
+    }
+  ]
+}

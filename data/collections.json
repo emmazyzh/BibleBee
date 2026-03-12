@@ -1,0 +1,58 @@
+{
+  "collections": [
+    {
+      "id": "grace",
+      "name": "关于恩典的经文",
+      "description": "精选关于神恩典的10节经文",
+      "count": 10,
+      "verses": [1, 2, 3, 4, 5],
+      "color": "from-pink-500 to-rose-500",
+      "icon": "✨"
+    },
+    {
+      "id": "faith",
+      "name": "关于信心的经文",
+      "description": "精选关于信心的12节经文",
+      "count": 12,
+      "verses": [2, 3, 6, 7, 8],
+      "color": "from-blue-500 to-cyan-500",
+      "icon": "💪"
+    },
+    {
+      "id": "children50",
+      "name": "儿童背经50句",
+      "description": "适合儿童背诵的50节经文",
+      "count": 50,
+      "verses": [1, 2, 3, 4, 5, 6, 7, 8, 9],
+      "color": "from-yellow-400 to-orange-500",
+      "icon": "👶"
+    },
+    {
+      "id": "hope",
+      "name": "关于盼望的经文",
+      "description": "在困境中带来盼望的经文",
+      "count": 8,
+      "verses": [6, 7, 8, 9],
+      "color": "from-green-400 to-emerald-500",
+      "icon": "🌟"
+    },
+    {
+      "id": "love",
+      "name": "关于爱的经文",
+      "description": "神的爱与彼此相爱的经文",
+      "count": 15,
+      "verses": [1, 2, 5],
+      "color": "from-red-400 to-pink-500",
+      "icon": "❤️"
+    },
+    {
+      "id": "gospel",
+      "name": "福音经文",
+      "description": "关于福音的大能",
+      "count": 2,
+      "verses": [10, 11],
+      "color": "from-purple-500 to-indigo-500",
+      "icon": "📖"
+    }
+  ]
+}
