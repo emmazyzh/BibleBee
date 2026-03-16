@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { Show, useClerk, useUser } from '@clerk/react'
 import './App.css'
 
 // 所有可用经文数据
@@ -102,6 +103,10 @@ const IconStudy = () => (
 
 const IconMedal = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/></svg>
+);
+
+const IconCamera = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
 );
 
 // 首字母模式组件
@@ -211,76 +216,6 @@ function FillInMode({ verse, darkMode }) {
   );
 }
 
-// 登录页面组件
-function LoginPage({ onLogin, darkMode }) {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!email || !password) {
-      setError('请输入邮箱和密码');
-      return;
-    }
-    if (password.length < 6) {
-      setError('密码至少6位');
-      return;
-    }
-    onLogin({ email, name: email.split('@')[0] });
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center" style={{ background: darkMode ? 'linear-gradient(to bottom right, #0d1117, #161b22)' : 'linear-gradient(to bottom right, #eff6ff, #e0e7ff)' }}>
-      <div className="rounded-2xl shadow-xl p-8 w-full max-w-md mx-4" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-        <div className="text-center mb-8">
-          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-primary text-white flex items-center justify-center">
-            <IconBook />
-          </div>
-          <h1 className="text-2xl font-bold" style={{ fontFamily: 'Rye, cursive' }}>Bible Bee</h1>
-          <p className="text-gray-500 dark:text-gray-400 mt-2">中英双语背诵与研读平台</p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-2">邮箱</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="请输入邮箱"
-              className="w-full px-4 py-3 border rounded-xl focus:outline-none focus:border-primary"
-              style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">密码</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="请输入密码"
-              className="w-full px-4 py-3 border rounded-xl focus:outline-none focus:border-primary"
-              style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-            />
-          </div>
-          {error && <p className="text-red-500 text-sm">{error}</p>}
-          <button
-            type="submit"
-            className="w-full py-3 bg-primary text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
-          >
-            登录
-          </button>
-        </form>
-
-        <p className="text-center text-sm text-gray-500 dark:text-gray-400 mt-6">
-          测试账号：任意邮箱 + 6位以上密码
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -296,51 +231,167 @@ function App() {
   const [showNextGroupModal, setShowNextGroupModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
-  const [user, setUser] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
   const [settings, setSettings] = useState({
     chineseVersion: 'cuv',
     englishVersion: 'esv',
     versesPerGroup: 3
   });
-  const [editingName, setEditingName] = useState(false);
-  const [newName, setNewName] = useState('');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [savedUsername, setSavedUsername] = useState('');
+  const [avatarPreview, setAvatarPreview] = useState('');
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState(null);
+  const [profileError, setProfileError] = useState('');
+  const [profileSuccess, setProfileSuccess] = useState('');
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const leaderboardPageSize = 10;
 
   const cardRef = useRef(null);
   const touchStartX = useRef(0);
+  const avatarInputRef = useRef(null);
+  const accountMenuRef = useRef(null);
+  const { signOut, openSignIn, openSignUp } = useClerk();
+  const { user } = useUser();
+
+  const getDefaultUsername = (email = '') => {
+    const localPart = email.split('@')[0] || 'user';
+    const normalized = localPart
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '_')
+      .replace(/^[._-]+|[._-]+$/g, '');
+
+    return normalized || 'user';
+  };
+
+  const primaryEmail = user?.primaryEmailAddress?.emailAddress || '';
+  const displayedAvatar = avatarPreview || user?.imageUrl || '';
 
   useEffect(() => {
-    const savedUser = localStorage.getItem('bibleBeeUser');
-    if (savedUser) {
-      setUser(JSON.parse(savedUser));
-      setIsLoggedIn(true);
+    if (!user) {
+      setUsernameInput('');
+      setSavedUsername('');
+      setAvatarPreview('');
+      setSelectedAvatarFile(null);
+      setProfileError('');
+      setProfileSuccess('');
+      return;
     }
+
+    const defaultUsername = user.username || getDefaultUsername(primaryEmail);
+    setUsernameInput(defaultUsername);
+    setSavedUsername(defaultUsername);
+    setAvatarPreview('');
+    setSelectedAvatarFile(null);
+  }, [user?.id, user?.username, user?.imageUrl, primaryEmail]);
+
+  useEffect(() => {
+    if (!user || user.username || !primaryEmail) return;
+
+    const defaultUsername = getDefaultUsername(primaryEmail);
+    user.update({ username: defaultUsername }).catch(() => {
+      // Keep the UI usable even if the initial default username sync fails.
+    });
+  }, [user, primaryEmail]);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview);
+      }
+    };
+  }, [avatarPreview]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (accountMenuRef.current && !accountMenuRef.current.contains(event.target)) {
+        setAccountMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleLogin = (userData) => {
-    const userInfo = { ...userData, name: userData.name || 'User', avatar: null };
-    setUser(userInfo);
-    setIsLoggedIn(true);
-    localStorage.setItem('bibleBeeUser', JSON.stringify(userInfo));
+  const handleOpenAvatarPicker = () => {
+    avatarInputRef.current?.click();
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    setIsLoggedIn(false);
-    localStorage.removeItem('bibleBeeUser');
-    setActiveTab('memorization');
-  };
+  const handleAvatarChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-  const handleUpdateName = () => {
-    if (newName.trim()) {
-      const updatedUser = { ...user, name: newName.trim() };
-      setUser(updatedUser);
-      localStorage.setItem('bibleBeeUser', JSON.stringify(updatedUser));
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview);
     }
-    setEditingName(false);
-    setNewName('');
+
+    setSelectedAvatarFile(file);
+    setAvatarPreview(URL.createObjectURL(file));
+    setProfileError('');
+    setProfileSuccess('');
+  };
+
+  const handleCancelProfileEdit = () => {
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview);
+    }
+
+    setUsernameInput(savedUsername);
+    setSelectedAvatarFile(null);
+    setAvatarPreview('');
+    setProfileError('');
+    setProfileSuccess('');
+
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = '';
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+
+    const trimmedUsername = usernameInput.trim();
+    if (!trimmedUsername) {
+      setProfileError('用户名不能为空');
+      setProfileSuccess('');
+      return;
+    }
+
+    try {
+      setIsSavingProfile(true);
+      setProfileError('');
+      setProfileSuccess('');
+
+      if (trimmedUsername !== user.username) {
+        await user.update({ username: trimmedUsername });
+      }
+
+      if (selectedAvatarFile) {
+        await user.setProfileImage({ file: selectedAvatarFile });
+      }
+
+      setSavedUsername(trimmedUsername);
+      setSelectedAvatarFile(null);
+      if (avatarPreview) {
+        URL.revokeObjectURL(avatarPreview);
+      }
+      setAvatarPreview('');
+      if (avatarInputRef.current) {
+        avatarInputRef.current.value = '';
+      }
+      setProfileSuccess('账号信息已保存');
+    } catch (error) {
+      setProfileError(error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || '保存失败，请稍后重试');
+    } finally {
+      setIsSavingProfile(false);
+    }
+  };
+
+  const handleOpenAccountPage = () => {
+    setActiveTab('userinfo');
+    setSidebarOpen(false);
+    setAccountMenuOpen(false);
   };
 
   const getCurrentVerseList = () => {
@@ -469,9 +520,7 @@ function App() {
     .map(id => allVerses.find(v => v.id === id))
     .filter(v => v && !masteredVerses.some(mv => mv.id === v.id) && !skippedVerses.includes(v.id));
 
-  if (!isLoggedIn) {
-    return <LoginPage onLogin={handleLogin} darkMode={darkMode} />;
-  }
+
 
   return (
     <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-[#0d1117] text-gray-100' : 'bg-gray-50 text-gray-800'}`}>
@@ -525,16 +574,53 @@ function App() {
             <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
               {darkMode ? <IconSun /> : <IconMoon />}
             </button>
-            <button
-              onClick={() => setActiveTab('userinfo')}
-              className={`flex items-center space-x-2 p-1 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
-               style={{ color: darkMode ? '#d1d5db' : '#374151' }}
-            >
-              <div className="w-8 h-8 rounded-full bg-primary text-white flex items-center justify-center">
-                <IconUser />
+            <Show when="signed-in">
+              <div className="relative" ref={accountMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setAccountMenuOpen(prev => !prev)}
+                  className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary/15"
+                  style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}
+                >
+                  {user?.imageUrl ? (
+                    <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center text-primary">
+                      <IconUser />
+                    </div>
+                  )}
+                </button>
+                {accountMenuOpen && (
+                  <div
+                    className="absolute right-0 mt-2 w-44 rounded-2xl shadow-xl border py-2 z-50"
+                    style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                  >
+                    <button
+                      type="button"
+                      onClick={handleOpenAccountPage}
+                      className={`w-full px-4 py-3 text-left text-sm ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
+                    >
+                      账号管理
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => signOut({ redirectUrl: '/' })}
+                      className={`w-full px-4 py-3 text-left text-sm text-red-500 ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
+                    >
+                      退出登录
+                    </button>
+                  </div>
+                )}
               </div>
-              <span className="hidden md:inline">{user?.name}</span>
-            </button>
+            </Show>
+            <Show when="signed-out">
+              <button 
+                onClick={() => openSignIn()}
+                className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+              >
+                登录
+              </button>
+            </Show>
           </div>
         </div>
       </header>
@@ -544,15 +630,34 @@ function App() {
         <aside className={`fixed inset-y-0 left-0 z-40 w-64 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-lg`} style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
           <div className="h-full flex flex-col">
             <div className="p-4 border-b" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
-              <div className="flex items-center space-x-2">
-                <div className="w-10 h-10 rounded-full bg-primary text-white flex items-center justify-center">
-                  <IconUser />
+              <Show when="signed-in">
+                <div className="flex items-center space-x-2">
+                  <div className="w-10 h-10 rounded-full overflow-hidden" style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}>
+                    {user?.imageUrl ? (
+                      <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-primary">
+                        <IconUser />
+                      </div>
+                    )}
+                  </div>
+                  <div>
+                    <h3 className="font-medium">{savedUsername || '用户'}</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">已背 {totalMastered} 节</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-medium">{user?.name}</h3>
-                  <p className="text-sm text-gray-500 dark:text-gray-400">已背 {totalMastered} 节</p>
+              </Show>
+              <Show when="signed-out">
+                <div className="flex items-center space-x-2">
+                  <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
+                    <IconUser />
+                  </div>
+                  <div>
+                    <h3 className="font-medium">访客</h3>
+                    <p className="text-sm text-gray-500 dark:text-gray-400">登录后同步进度</p>
+                  </div>
                 </div>
-              </div>
+              </Show>
             </div>
             <nav className="flex-1 p-4">
               <ul className="space-y-2">
@@ -765,22 +870,22 @@ function App() {
           )}
 
           {activeTab === 'study' && (
-            <div className="space-y-6">
+            <div className="space-y-6 pt-4 md:pt-6 max-w-3xl mx-auto">
               <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
                 <div>
-                  <p className="text-sm text-gray-400 mt-1">敬畏耶和华是智慧的开端，认识至圣者便是聪明。</p>
+                  <p className="text-sm text-gray-400 mt-3">敬畏耶和华是智慧的开端，认识至圣者便是聪明。</p>
                 </div>
               </div>
 
-              <div className="rounded-lg shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+              <div className="w-full rounded-lg shadow-sm p-5 md:p-6 overflow-hidden" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                 <h3 className="font-medium mb-4">{currentVerse?.referenceCN} {currentVerse?.reference}</h3>
                 <div className="space-y-4">
-                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg">
+                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg leading-relaxed break-words flex flex-wrap gap-x-1.5 gap-y-2">
                     {currentVerse?.english.split(' ').map((word, i) => (
-                      <span key={i} className="text-primary cursor-pointer hover:underline mr-1">{word}</span>
+                      <span key={i} className="text-primary cursor-pointer hover:underline break-words">{word}</span>
                     ))}
                   </div>
-                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg">
+                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg leading-relaxed break-words">
                     {currentVerse?.chinese}
                   </div>
                 </div>
@@ -789,7 +894,7 @@ function App() {
           )}
 
           {activeTab === 'plan' && (
-            <div className="space-y-6 max-w-2xl mx-auto">
+            <div className="space-y-6 max-w-2xl mx-auto pt-4 md:pt-6">
               <div className="text-center mb-8">
                 <p className="text-gray-500 dark:text-gray-300">选择经文列表开始你的背诵之旅</p>
               </div>
@@ -840,83 +945,137 @@ function App() {
 
           {activeTab === 'userinfo' && (
             <div className="space-y-6 max-w-2xl mx-auto pt-4">
-
-              <div className="rounded-2xl shadow-sm p-8" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <div className="flex items-center space-x-6 mb-8">
-                  <div className="relative">
-                    <div className="w-24 h-24 rounded-full bg-primary text-white flex items-center justify-center text-4xl">
-                      {user?.name?.charAt(0).toUpperCase()}
+              <Show when="signed-in">
+                <div className="rounded-2xl shadow-sm p-6 md:p-8" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-6">
+                    <div className="flex items-center gap-4 md:gap-6">
+                      <div className="relative w-20 h-20 md:w-24 md:h-24">
+                        <div className="w-full h-full rounded-full overflow-hidden ring-4 ring-primary/15" style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}>
+                          {displayedAvatar ? (
+                            <img src={displayedAvatar} alt="用户头像" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-primary">
+                              <IconUser />
+                            </div>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleOpenAvatarPicker}
+                          className="absolute -right-1 bottom-0 w-8 h-8 rounded-full flex items-center justify-center shadow-md border"
+                          style={{
+                            backgroundColor: darkMode ? '#d1d5db' : '#e5e7eb',
+                            borderColor: darkMode ? '#9ca3af' : '#d1d5db',
+                            color: '#374151'
+                          }}
+                          aria-label="更新头像"
+                        >
+                          <IconCamera />
+                        </button>
+                      </div>
                     </div>
-                    <button className="absolute bottom-0 right-0 w-10 h-10 rounded-full flex items-center justify-center text-sm" style={{ backgroundColor: darkMode ? '#30363d' : '#e5e7eb' }}>
-                      📷
+
+                    <div className="hidden md:block" />
+                  </div>
+
+                  <div className="hidden">
+                    <input
+                      ref={avatarInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleAvatarChange}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-5 mt-8">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">用户名</label>
+                      <input
+                        type="text"
+                        value={usernameInput}
+                        onChange={(e) => {
+                          setUsernameInput(e.target.value);
+                          setProfileError('');
+                          setProfileSuccess('');
+                        }}
+                        className="w-full px-4 py-3 border rounded-xl focus:outline-none focus:border-primary"
+                        style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium mb-2">邮箱</label>
+                      <input
+                        type="text"
+                        value={primaryEmail}
+                        disabled
+                        className="w-full px-4 py-3 border rounded-xl opacity-70 cursor-not-allowed"
+                        style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                      />
+                    </div>
+                  </div>
+
+                  {(profileError || profileSuccess) && (
+                    <div className={`mt-5 text-sm ${profileError ? 'text-red-500' : 'text-green-600'}`}>
+                      {profileError || profileSuccess}
+                    </div>
+                  )}
+
+                  <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 mt-8">
+                    <button
+                      type="button"
+                      onClick={handleCancelProfileEdit}
+                      className="px-5 py-3 rounded-xl border font-medium transition-colors"
+                      style={{ borderColor: darkMode ? '#30363d' : '#d1d5db', backgroundColor: darkMode ? '#21262d' : '#ffffff' }}
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveProfile}
+                      disabled={isSavingProfile}
+                      className="px-5 py-3 rounded-xl bg-primary text-white font-medium hover:bg-blue-600 transition-colors disabled:opacity-60"
+                    >
+                      {isSavingProfile ? '保存中...' : '保存'}
                     </button>
                   </div>
-                  <div className="flex-1">
-                    <p className="text-sm text-gray-500 dark:text-gray-300 mb-1">用户名</p>
-                    {editingName ? (
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          value={newName}
-                          onChange={(e) => setNewName(e.target.value)}
-                          className="px-3 py-2 border rounded-lg"
-                          style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-                          placeholder="输入新用户名"
-                        />
-                        <button
-                          onClick={handleUpdateName}
-                          className="px-4 py-2 bg-primary text-white rounded-lg"
-                        >
-                          保存
-                        </button>
-                        <button
-                          onClick={() => { setEditingName(false); setNewName(''); }}
-                          className="px-4 py-2 rounded-lg text-gray-700 dark:text-gray-200"
-                          style={{ backgroundColor: darkMode ? '#30363d' : '#e5e7eb' }}
-                        >
-                          取消
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="flex items-center space-x-3">
-                        <p className="text-2xl font-medium">{user?.name}</p>
-                        <button
-                          onClick={() => { setEditingName(true); setNewName(user?.name); }}
-                          className="text-sm text-primary hover:underline"
-                        >
-                          修改
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
 
-                <div className="space-y-4">
-                  <div className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                    <p className="text-sm text-gray-500 dark:text-gray-300 mb-1">邮箱</p>
-                    <p className="text-lg">{user?.email}</p>
-                  </div>
                 </div>
-
-                <div className="mt-8 pt-6 border-t" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
-                  <button
-                    onClick={handleLogout}
-                    className="w-full py-3 border-2 border-red-400 text-red-500 rounded-xl font-medium hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex items-center justify-center space-x-2"
+              </Show>
+              <Show when="signed-out">
+                <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  <div className="w-20 h-20 mx-auto mb-4 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center">
+                    <IconUser />
+                  </div>
+                  <h3 className="text-xl font-bold mb-2">访客模式</h3>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6">登录后可同步您的背诵进度到云端</p>
+                  <button 
+                    onClick={() => openSignUp()}
+                    className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
                   >
-                    <IconLogOut />
-                    <span>退出登录</span>
+                    登录 / 注册
                   </button>
                 </div>
-              </div>
+              </Show>
             </div>
           )}
 
           {activeTab === 'progress' && (
             <div className="space-y-6 max-w-3xl mx-auto pt-4">
               <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <p className="dark:text-white mb-2" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>{user?.name}，你已经背了</p>
+                <p className="dark:text-white mb-2" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>
+                  <Show when="signed-in">用户</Show>
+                  <Show when="signed-out">访客</Show>
+                  ，你已经背了
+                </p>
                 <p className="text-6xl font-bold text-primary mb-2">{totalMastered}</p>
                 <p className="dark:text-white" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>节经文</p>
+                <Show when="signed-out">
+                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
+                    登录后可同步进度到云端
+                  </p>
+                </Show>
               </div>
 
               <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
@@ -931,16 +1090,15 @@ function App() {
                     {masteredVerses.map(mv => {
                       const verse = allVerses.find(v => v.id === mv.id);
                       return (
-                        <div key={mv.id} className="flex justify-between items-start p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                          <div className="flex-1">
+                        <div key={mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
+                          <div>
                             <p className="font-bold text-primary">{verse?.referenceCN}</p>
                             <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse?.chinese}</p>
                             <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
                           </div>
-                          <div className="text-right text-sm text-gray-500 dark:text-gray-300 ml-4 shrink-0">
+                          <div className="mt-3 text-right text-xs text-gray-500 dark:text-gray-300 leading-5">
                             <p className="text-green-600 font-medium">已掌握</p>
                             <p>{mv.date}</p>
-                            <p>复习{mv.reviewCount}次</p>
                           </div>
                         </div>
                       );
@@ -1141,6 +1299,7 @@ function App() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
