@@ -1,5 +1,5 @@
 import { verifyWebhook } from '@clerk/backend/webhooks'
-import { ensureClerkUsersTable, upsertClerkUser } from '../lib/users.js'
+import { deleteClerkUser, ensureClerkUsersTable, upsertClerkUser } from '../lib/users.js'
 
 async function readRawBody(req) {
   const chunks = []
@@ -41,21 +41,27 @@ export default async function handler(req, res) {
 
     const event = await verifyWebhook(request)
 
-    if (event.type !== 'user.created') {
-      return res.status(200).json({ ok: true, ignored: true, type: event.type })
+    await ensureClerkUsersTable()
+
+    if (event.type === 'user.created' || event.type === 'user.updated') {
+      await upsertClerkUser({
+        clerkUserId: event.data.id,
+        email: getPrimaryEmail(event.data),
+        username: event.data.username || getPrimaryEmail(event.data)?.split('@')[0] || event.data.id,
+        imageUrl: event.data.image_url || null,
+        clerkCreatedAt: toDateOrNull(event.data.created_at),
+        clerkUpdatedAt: toDateOrNull(event.data.updated_at),
+      })
+
+      return res.status(200).json({ ok: true, type: event.type, clerkUserId: event.data.id })
     }
 
-    await ensureClerkUsersTable()
-    await upsertClerkUser({
-      clerkUserId: event.data.id,
-      email: getPrimaryEmail(event.data),
-      username: event.data.username || null,
-      imageUrl: event.data.image_url || null,
-      clerkCreatedAt: toDateOrNull(event.data.created_at),
-      clerkUpdatedAt: toDateOrNull(event.data.updated_at),
-    })
+    if (event.type === 'user.deleted') {
+      await deleteClerkUser(event.data.id)
+      return res.status(200).json({ ok: true, type: event.type, clerkUserId: event.data.id })
+    }
 
-    return res.status(200).json({ ok: true, type: event.type, clerkUserId: event.data.id })
+    return res.status(200).json({ ok: true, ignored: true, type: event.type })
   } catch (error) {
     return res.status(400).json({
       ok: false,
