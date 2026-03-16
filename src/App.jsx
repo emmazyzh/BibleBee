@@ -253,7 +253,7 @@ function App() {
   const avatarInputRef = useRef(null);
   const accountMenuRef = useRef(null);
   const { signOut, openSignIn, openSignUp } = useClerk();
-  const { user } = useUser();
+  const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
 
   const getDefaultUsername = (email = '') => {
     const localPart = email.split('@')[0] || 'user';
@@ -574,7 +574,7 @@ function App() {
             <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
               {darkMode ? <IconSun /> : <IconMoon />}
             </button>
-            <Show when="signed-in">
+            {isUserLoaded && isSignedIn ? (
               <div className="relative" ref={accountMenuRef}>
                 <button
                   type="button"
@@ -612,15 +612,14 @@ function App() {
                   </div>
                 )}
               </div>
-            </Show>
-            <Show when="signed-out">
+            ) : (
               <button 
                 onClick={() => openSignIn()}
                 className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
               >
                 登录
               </button>
-            </Show>
+            )}
           </div>
         </div>
       </header>
