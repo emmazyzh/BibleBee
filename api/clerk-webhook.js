@@ -48,7 +48,7 @@ export default async function handler(req, res) {
         clerkUserId: event.data.id,
         email: getPrimaryEmail(event.data),
         username: event.data.username || getPrimaryEmail(event.data)?.split('@')[0] || event.data.id,
-        imageUrl: event.data.image_url || null,
+        imageUrl: event.data.profile_image_url || event.data.image_url || null,
         clerkCreatedAt: toDateOrNull(event.data.created_at),
         clerkUpdatedAt: toDateOrNull(event.data.updated_at),
       })

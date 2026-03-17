@@ -2,6 +2,25 @@ import { useState, useEffect, useRef } from 'react'
 import { Show, useClerk, useUser } from '@clerk/react'
 import './App.css'
 
+async function fetchJson(url, options) {
+  const response = await fetch(url, {
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(options?.headers || {}),
+    },
+    ...options,
+  })
+
+  const payload = await response.json().catch(() => ({}))
+
+  if (!response.ok) {
+    throw new Error(payload.error || '请求失败，请稍后重试')
+  }
+
+  return payload
+}
+
 // 所有可用经文数据
 const allVerses = [
   { id: 1, reference: 'John 3:16', referenceCN: '约翰福音 3:16', english: 'For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life.', chinese: '神爱世人，甚至将他的独生子赐给他们，叫一切信他的，不至灭亡，反得永生。', keywords: ['神爱世人', '独生子', '不至灭亡', '反得永生'] },
@@ -109,6 +128,14 @@ const IconCamera = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
 );
 
+const IconList = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/></svg>
+);
+
+const IconBookmarkPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
+);
+
 // 首字母模式组件
 function FirstLetterMode({ verse, darkMode }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
@@ -146,72 +173,73 @@ function FirstLetterMode({ verse, darkMode }) {
   );
 }
 
-// 挖空模式组件
 function FillInMode({ verse, darkMode }) {
-  const [revealedKeywords, setRevealedKeywords] = useState(new Set());
+  const [revealedWords, setRevealedWords] = useState(new Set());
 
-  const handleKeywordClick = (keyword) => {
-    setRevealedKeywords(prev => new Set([...prev, keyword]));
+  const handleWordClick = (index) => {
+    setRevealedWords(prev => new Set([...prev, index]));
   };
 
-  const renderText = () => {
-    let text = verse.chinese;
-    const elements = [];
-    let lastIndex = 0;
+  useEffect(() => {
+    setRevealedWords(new Set());
+  }, [verse?.id]);
 
-    const keywordPositions = [];
-    verse.keywords.forEach(keyword => {
-      let pos = text.indexOf(keyword);
-      while (pos !== -1) {
-        keywordPositions.push({ pos, length: keyword.length, keyword });
-        pos = text.indexOf(keyword, pos + 1);
+  const blankSource = verse?.chineseBlank || verse?.chinese || '';
+  const originalSource = verse?.chinese || blankSource;
+  const segments = [];
+
+  if (blankSource && originalSource && blankSource.length === originalSource.length) {
+    let cursor = 0;
+    while (cursor < blankSource.length) {
+      const isBlank = blankSource[cursor] === '#';
+      let nextCursor = cursor + 1;
+      while (nextCursor < blankSource.length && (blankSource[nextCursor] === '#') === isBlank) {
+        nextCursor += 1;
       }
-    });
-
-    keywordPositions.sort((a, b) => a.pos - b.pos);
-
-    const uniquePositions = [];
-    keywordPositions.forEach(kp => {
-      if (!uniquePositions.some(up => up.pos === kp.pos)) {
-        uniquePositions.push(kp);
-      }
-    });
-
-    uniquePositions.forEach(({ pos, length, keyword }) => {
-      if (pos > lastIndex) {
-        elements.push(<span key={`text-${pos}`}>{text.slice(lastIndex, pos)}</span>);
-      }
-
-      const isRevealed = revealedKeywords.has(keyword);
-      elements.push(
-        <span
-          key={`kw-${pos}`}
-          className={`inline-block mx-1 px-2 py-1 rounded cursor-pointer transition-all ${isRevealed
-            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-            : 'bg-primary/10 text-primary border-b-2 border-primary min-w-[3em] text-center hover:bg-primary/20'
-            }`}
-          onClick={() => !isRevealed && handleKeywordClick(keyword)}
-        >
-          {isRevealed ? keyword : '?'}
-        </span>
-      );
-
-      lastIndex = pos + length;
-    });
-
-    if (lastIndex < text.length) {
-      elements.push(<span key={`text-end`}>{text.slice(lastIndex)}</span>);
+      segments.push({
+        token: originalSource.slice(cursor, nextCursor),
+        isBlank,
+      });
+      cursor = nextCursor;
     }
-
-    return elements;
-  };
+  } else if (originalSource) {
+    segments.push({
+      token: originalSource,
+      isBlank: false,
+    });
+  }
 
   return (
     <div className="text-center">
       <p className="text-2xl leading-relaxed" style={{ fontFamily: 'Playfair Display, serif' }}>
-        {renderText()}
+        {segments.map((segment, index) => {
+          if (!segment.isBlank) {
+            return <span key={`text-${index}`}>{segment.token}</span>;
+          }
+
+          const isRevealed = revealedWords.has(index);
+          const blankWidth = `${Math.max(segment.token.length, 2)}ch`;
+
+          return (
+            <button
+              key={`blank-${index}`}
+              type="button"
+              onClick={() => !isRevealed && handleWordClick(index)}
+              className={`inline-flex items-center justify-center mx-1 my-1 px-2 py-1 rounded border-b-2 transition-all align-baseline ${isRevealed
+                ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200 dark:border-green-700'
+                : 'bg-primary/10 text-primary border-primary hover:bg-primary/20'
+              }`}
+              style={{ minWidth: blankWidth }}
+            >
+              {isRevealed ? segment.token : '?'}
+            </button>
+          );
+        })}
       </p>
-      <p className="text-sm text-gray-400 mt-8">点击问号查看提示</p>
+      <p className="text-base leading-relaxed mt-6 text-gray-500 dark:text-gray-300 italic">
+        {verse.english}
+      </p>
+      <p className="text-sm text-gray-400 mt-6">点击空格查看关键词</p>
     </div>
   );
 }
@@ -246,14 +274,136 @@ function App() {
   const [profileSuccess, setProfileSuccess] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
+  const [plans, setPlans] = useState([]);
+  const [plansLoading, setPlansLoading] = useState(false);
+  const [plansError, setPlansError] = useState('');
+  const [selectedPlanId, setSelectedPlanId] = useState(null);
+  const [selectedPlan, setSelectedPlan] = useState(null);
+  const [selectedPlanVerses, setSelectedPlanVerses] = useState([]);
+  const [selectedPlanLoading, setSelectedPlanLoading] = useState(false);
+  const [selectedPlanError, setSelectedPlanError] = useState('');
+  const [showSelectPlanModal, setShowSelectPlanModal] = useState(false);
+  const [clearCurrentPlanSelection, setClearCurrentPlanSelection] = useState(false);
+  const [isSelectingPlan, setIsSelectingPlan] = useState(false);
+  const [memorizationData, setMemorizationData] = useState({ activeVerses: [], masteredVerses: [] });
+  const [memorizationLoading, setMemorizationLoading] = useState(false);
+  const [memorizationError, setMemorizationError] = useState('');
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const leaderboardPageSize = 10;
 
   const cardRef = useRef(null);
   const touchStartX = useRef(0);
   const avatarInputRef = useRef(null);
   const accountMenuRef = useRef(null);
+  const planDetailsCacheRef = useRef({});
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
+
+  const normalizeSelectedUsers = (selectedUsers) => {
+    const rawUsers = Array.isArray(selectedUsers)
+      ? selectedUsers
+      : typeof selectedUsers === 'string'
+        ? (() => {
+          try {
+            return JSON.parse(selectedUsers);
+          } catch (_error) {
+            return [];
+          }
+        })()
+        : [];
+
+    const dedupedUsers = [];
+    const seenIds = new Set();
+
+    rawUsers.forEach((selectedUser) => {
+      const normalizedUser = {
+        id: selectedUser?.id || selectedUser?.user_id || selectedUser?.clerk_user_id || '',
+        username: selectedUser?.username || selectedUser?.user_name || '',
+        image_url: selectedUser?.image_url || selectedUser?.imageUrl || '',
+        joined_at: selectedUser?.joined_at || null,
+      };
+
+      if (!normalizedUser.id || seenIds.has(normalizedUser.id)) {
+        return;
+      }
+
+      seenIds.add(normalizedUser.id);
+      dedupedUsers.push(normalizedUser);
+    });
+
+    return dedupedUsers;
+  };
+
+  const preloadPlanDetails = async (planId) => {
+    if (planDetailsCacheRef.current[planId]) {
+      return planDetailsCacheRef.current[planId];
+    }
+
+    const result = await fetchJson(`/api/plans/${planId}`);
+    const detail = {
+      plan: result.plan,
+      verses: result.verses || [],
+    };
+
+    planDetailsCacheRef.current[planId] = detail;
+    return detail;
+  };
+
+  const loadPlans = async () => {
+    if (!isSignedIn) return;
+
+    try {
+      setPlansLoading(true);
+      setPlansError('');
+      const result = await fetchJson('/api/plans');
+      const nextPlans = (result.plans || []).map((plan) => ({
+        ...plan,
+        selected_users: normalizeSelectedUsers(plan.selected_users),
+      }));
+      setPlans(nextPlans);
+      nextPlans.forEach((plan) => {
+        void preloadPlanDetails(plan.id);
+      });
+    } catch (error) {
+      setPlansError(error.message);
+    } finally {
+      setPlansLoading(false);
+    }
+  };
+
+  const loadPlanDetails = async (planId, nextTab = 'plan-detail') => {
+    try {
+      setSelectedPlanLoading(true);
+      setSelectedPlanError('');
+      setSelectedPlanId(planId);
+      const result = await preloadPlanDetails(planId);
+      setSelectedPlan(result.plan);
+      setSelectedPlanVerses(result.verses);
+      setActiveTab(nextTab);
+    } catch (error) {
+      setSelectedPlanError(error.message);
+    } finally {
+      setSelectedPlanLoading(false);
+    }
+  };
+
+  const loadMemorizationData = async () => {
+    if (!isSignedIn) return;
+
+    try {
+      setMemorizationLoading(true);
+      setMemorizationError('');
+      const result = await fetchJson('/api/memorization');
+      setMemorizationData({
+        activeVerses: result.activeVerses || [],
+        masteredVerses: result.masteredVerses || [],
+      });
+    } catch (error) {
+      setMemorizationError(error.message);
+    } finally {
+      setMemorizationLoading(false);
+    }
+  };
 
   const getDefaultUsername = (email = '') => {
     const localPart = email.split('@')[0] || 'user';
@@ -267,6 +417,7 @@ function App() {
 
   const primaryEmail = user?.primaryEmailAddress?.emailAddress || '';
   const displayedAvatar = avatarPreview || user?.imageUrl || '';
+  const displayUsername = savedUsername || usernameInput || user?.username || '用户';
 
   useEffect(() => {
     if (!user) {
@@ -313,6 +464,22 @@ function App() {
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!isUserLoaded) return;
+
+    if (!isSignedIn) {
+      setPlans([]);
+      setSelectedPlan(null);
+      setSelectedPlanVerses([]);
+      setMemorizationData({ activeVerses: [], masteredVerses: [] });
+      planDetailsCacheRef.current = {};
+      return;
+    }
+
+    loadPlans();
+    loadMemorizationData();
+  }, [isUserLoaded, isSignedIn, user?.id]);
 
   const handleOpenAvatarPicker = () => {
     avatarInputRef.current?.click();
@@ -400,8 +567,12 @@ function App() {
       .filter(v => v && !masteredVerses.some(mv => mv.id === v.id));
   };
 
-  const currentVerseList = getCurrentVerseList();
+  const guestCurrentVerseList = getCurrentVerseList();
+  const shouldShowGuestMemorization = isUserLoaded && !isSignedIn;
+  const currentVerseList = shouldShowGuestMemorization ? guestCurrentVerseList : memorizationData.activeVerses;
   const currentVerse = currentVerseList[currentVerseIndex];
+  const showMemorizationLoading = !isUserLoaded || (isSignedIn && memorizationLoading);
+  const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
@@ -429,6 +600,12 @@ function App() {
 
   const handleMastered = () => {
     if (!currentVerse) return;
+
+    if (isSignedIn) {
+      handleReview('mastered');
+      return;
+    }
+
     const today = new Date().toISOString().split('T')[0];
     setMasteredVerses([...masteredVerses, { id: currentVerse.id, date: today, reviewCount: 1 }]);
     const remainingVerses = currentVerseList.filter(v => v.id !== currentVerse.id);
@@ -444,11 +621,22 @@ function App() {
   };
 
   const handleNotMastered = () => {
+    if (isSignedIn) {
+      handleReview('again');
+      return;
+    }
+
     goToNextVerse();
   };
 
   const handleSkip = () => {
     if (!currentVerse) return;
+
+    if (isSignedIn) {
+      handleReview('skip');
+      return;
+    }
+
     setSkippedVerses([...skippedVerses, currentVerse.id]);
     const remainingVerses = currentVerseList.filter(v => v.id !== currentVerse.id);
     if (remainingVerses.length === 0) {
@@ -499,6 +687,65 @@ function App() {
     setShowNextGroupModal(false);
   };
 
+  const handleReview = async (action) => {
+    if (!currentVerse || !isSignedIn || isSubmittingReview) return;
+
+    try {
+      setIsSubmittingReview(true);
+      setMemorizationError('');
+      await fetchJson('/api/memorization/review', {
+        method: 'POST',
+        body: JSON.stringify({
+          userVerseId: currentVerse.userVerseId,
+          action,
+        }),
+      });
+
+      if (action === 'skip') {
+        goToNextVerse();
+        return;
+      }
+
+      await loadMemorizationData();
+    } catch (error) {
+      setMemorizationError(error.message);
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const handleSelectPlan = async () => {
+    if (!selectedPlan || isSelectingPlan) return;
+
+    try {
+      setIsSelectingPlan(true);
+      setSelectedPlanError('');
+      await fetchJson(`/api/plans/${selectedPlan.id}/select`, {
+        method: 'POST',
+        body: JSON.stringify({
+          clearCurrent: clearCurrentPlanSelection,
+        }),
+      });
+
+      setShowSelectPlanModal(false);
+      setClearCurrentPlanSelection(false);
+      await Promise.all([loadPlans(), loadMemorizationData()]);
+      setCurrentVerseIndex(0);
+      setActiveTab('memorization');
+    } catch (error) {
+      setSelectedPlanError(error.message);
+    } finally {
+      setIsSelectingPlan(false);
+    }
+  };
+
+  const openSelectPlanModal = (plan) => {
+    setSelectedPlan(plan);
+    setSelectedPlanError('');
+    setClearCurrentPlanSelection(false);
+    setShowSelectPlanModal(true);
+  };
+
   const searchResults = searchQuery.trim()
     ? allVerses.filter(v =>
       v.chinese.includes(searchQuery) ||
@@ -515,10 +762,17 @@ function App() {
     leaderboardPage * leaderboardPageSize
   );
 
-  const totalMastered = masteredVerses.length;
-  const pendingVerses = currentVerses
-    .map(id => allVerses.find(v => v.id === id))
-    .filter(v => v && !masteredVerses.some(mv => mv.id === v.id) && !skippedVerses.includes(v.id));
+  const totalMastered = isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length;
+  const pendingVerses = isSignedIn
+    ? memorizationData.activeVerses
+    : currentVerses
+      .map(id => allVerses.find(v => v.id === id))
+      .filter(v => v && !masteredVerses.some(mv => mv.id === v.id) && !skippedVerses.includes(v.id));
+
+  useEffect(() => {
+    if (currentVerseIndex < currentVerseList.length) return;
+    setCurrentVerseIndex(0);
+  }, [currentVerseIndex, currentVerseList.length]);
 
 
 
@@ -641,7 +895,7 @@ function App() {
                     )}
                   </div>
                   <div>
-                    <h3 className="font-medium">{savedUsername || '用户'}</h3>
+                    <h3 className="font-medium">{displayUsername}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">已背 {totalMastered} 节</p>
                   </div>
                 </div>
@@ -694,24 +948,50 @@ function App() {
         <main className="flex-1 p-2 md:p-4">
           {activeTab === 'memorization' && (
             <div className="h-[calc(100vh-100px)] flex flex-col">
-              <div
-                ref={cardRef}
-                onTouchStart={handleTouchStart}
-                onTouchEnd={handleTouchEnd}
-                className="flex-1 rounded-2xl shadow-lg p-4 md:p-6 flex flex-col relative"
-                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
-              >
-                {currentVerseList.length === 0 ? (
+              {showEmptyMemorizationState ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+                  <div className="text-6xl mb-4">🎉</div>
+                  <h3 className="text-2xl font-bold mb-2">当前没有待背诵经文</h3>
+                  <p className="text-gray-500 mb-6">去计划页选择一个经文列表开始背诵。</p>
+                  <button
+                    onClick={() => setActiveTab('plan')}
+                    className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
+                  >
+                    去选择计划
+                  </button>
+                </div>
+              ) : (
+                <div
+                  ref={cardRef}
+                  onTouchStart={handleTouchStart}
+                  onTouchEnd={handleTouchEnd}
+                  className="flex-1 rounded-2xl shadow-lg p-4 md:p-6 flex flex-col relative"
+                  style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+                >
+                {showMemorizationLoading ? (
+                  <div className="flex-1 flex items-center justify-center text-gray-500">正在加载背诵经文...</div>
+                ) : currentVerseList.length === 0 ? (
                   <div className="flex-1 flex flex-col items-center justify-center text-center">
                     <div className="text-6xl mb-4">🎉</div>
-                    <h3 className="text-2xl font-bold mb-2">恭喜！</h3>
-                    <p className="text-gray-500 mb-6">你已经完成了当前组的所有经文</p>
-                    <button
-                      onClick={() => setShowNextGroupModal(true)}
-                      className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
-                    >
-                      开始下一组
-                    </button>
+                    <h3 className="text-2xl font-bold mb-2">{shouldShowGuestMemorization ? '恭喜！' : '当前没有待背诵经文'}</h3>
+                    <p className="text-gray-500 mb-6">
+                      {shouldShowGuestMemorization ? '你已经完成了当前组的所有经文' : '去计划页选择一个经文列表开始背诵。'}
+                    </p>
+                    {!shouldShowGuestMemorization ? (
+                      <button
+                        onClick={() => setActiveTab('plan')}
+                        className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
+                      >
+                        去选择计划
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => setShowNextGroupModal(true)}
+                        className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
+                      >
+                        开始下一组
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <>
@@ -801,26 +1081,33 @@ function App() {
                     <div className="flex justify-center items-center space-x-6 mt-6">
                       <button
                         onClick={handleNotMastered}
+                        disabled={isSubmittingReview}
                         className="px-8 py-3 rounded-full border-2 border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-medium transition-all"
                       >
                         不熟
                       </button>
                       <button
                         onClick={handleMastered}
+                        disabled={isSubmittingReview}
                         className="px-8 py-3 rounded-full bg-green-500 text-white hover:bg-green-600 font-medium transition-all shadow-lg"
                       >
                         会背
                       </button>
                       <button
                         onClick={handleSkip}
+                        disabled={isSubmittingReview}
                         className="text-sm text-gray-400 hover:text-gray-600 underline"
                       >
                         跳过
                       </button>
                     </div>
+                    {memorizationError && (
+                      <p className="text-center text-sm text-red-500 mt-4">{memorizationError}</p>
+                    )}
                   </>
                 )}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -898,47 +1185,175 @@ function App() {
                 <p className="text-gray-500 dark:text-gray-300">选择经文列表开始你的背诵之旅</p>
               </div>
 
-              <div className="space-y-4">
-                {verseCollections.map((collection, index) => (
-                  <div key={collection.id} className="rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all transform hover:scale-[1.02]" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                    <div className={`h-2 bg-gradient-to-r ${collection.color}`}></div>
-                    <div className="p-6">
-                      <div className="flex items-start space-x-4">
-                        <div className="text-4xl">{collection.icon}</div>
-                        <div className="flex-1">
-                          <div className="flex justify-between items-start mb-2">
-                            <h3 className="text-xl font-bold">{collection.name}</h3>
-                            <span className={`px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r ${collection.color} text-white`}>
-                              {collection.count}节
-                            </span>
-                          </div>
-                          <p className="text-gray-500 dark:text-gray-300 mb-4">{collection.description}</p>
-                          <div className="flex items-center justify-between">
-                            <div className="flex space-x-2">
-                              {collection.verses.slice(0, 3).map((vId, i) => (
-                                <span key={i} className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-gray-500 dark:text-gray-300" style={{ backgroundColor: darkMode ? '#30363d' : '#f3f4f6' }}>
-                                  {i + 1}
+              {!isSignedIn ? (
+                <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  <p className="text-gray-500 dark:text-gray-400 mb-6">登录后可从数据库读取计划并同步背诵进度。</p>
+                  <button
+                    onClick={() => openSignUp()}
+                    className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
+                  >
+                    登录 / 注册
+                  </button>
+                </div>
+              ) : plansLoading ? (
+                <div className="text-center text-gray-500">正在加载计划...</div>
+              ) : plansError ? (
+                <div className="text-center text-red-500">{plansError}</div>
+              ) : (
+                <div className="space-y-4">
+                  {plans.map((plan, index) => (
+                    <div
+                      key={plan.id}
+                      className="rounded-2xl shadow-lg overflow-hidden hover:shadow-xl transition-all transform hover:scale-[1.02]"
+                      style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+                    >
+                      <div className={`h-2 bg-gradient-to-r ${verseCollections[index % verseCollections.length].color}`}></div>
+                      <div className="p-6">
+                        <div className="flex items-start space-x-4">
+                          <div className="text-4xl">{verseCollections[index % verseCollections.length].icon}</div>
+                          <div className="flex-1">
+                            <div className="flex justify-between items-start mb-2 gap-3">
+                              <h3 className="text-xl font-bold">{plan.plan_name}</h3>
+                              <div className="flex items-center gap-2">
+                                {plan.is_selected === 1 && (
+                                  <span className="px-3 py-1 rounded-full text-xs font-medium bg-green-100 text-green-700">
+                                    已选择
+                                  </span>
+                                )}
+                                <span className={`px-3 py-1 rounded-full text-sm font-medium bg-gradient-to-r ${verseCollections[index % verseCollections.length].color} text-white`}>
+                                  {plan.verse_count}节
                                 </span>
-                              ))}
-                              {collection.verses.length > 3 && (
-                                <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs text-gray-500 dark:text-gray-300" style={{ backgroundColor: darkMode ? '#30363d' : '#f3f4f6' }}>
-                                  +{collection.verses.length - 3}
-                                </span>
-                              )}
+                              </div>
                             </div>
-                            <button
-                              onClick={() => selectCollection(collection)}
-                              className={`px-6 py-2 rounded-full text-white font-medium bg-gradient-to-r ${collection.color} hover:shadow-lg transition-all`}
-                            >
-                              选择此列表
-                            </button>
+                            <p className="text-gray-500 dark:text-gray-300 mb-4">{plan.description}</p>
+                            <div className="flex items-center justify-between gap-4">
+                              <div className="flex items-center">
+                                {(plan.selected_users || []).length > 0 ? (
+                                  <div className="flex items-center">
+                                    {(plan.selected_users || []).slice(0, 5).map((selectedUser, avatarIndex) => (
+                                      <div
+                                        key={selectedUser.id}
+                                        className={`w-8 h-8 rounded-full overflow-hidden border-2 ${avatarIndex === 0 ? '' : '-ml-2'}`}
+                                        style={{
+                                          backgroundColor: darkMode ? '#21262d' : '#f3f4f6',
+                                          borderColor: darkMode ? '#161b22' : '#ffffff',
+                                        }}
+                                        title={selectedUser.username || '用户'}
+                                      >
+                                        {selectedUser.image_url ? (
+                                          <>
+                                            <img
+                                              src={selectedUser.image_url}
+                                              alt={selectedUser.username || '用户头像'}
+                                              className="w-full h-full object-cover"
+                                              onError={(event) => {
+                                                event.currentTarget.style.display = 'none';
+                                                const fallback = event.currentTarget.nextElementSibling;
+                                                if (fallback) {
+                                                  fallback.classList.remove('hidden');
+                                                  fallback.classList.add('flex');
+                                                }
+                                              }}
+                                            />
+                                            <div className="hidden w-full h-full items-center justify-center text-xs font-semibold text-primary">
+                                              {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
+                                            </div>
+                                          </>
+                                        ) : (
+                                          <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-primary">
+                                            {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
+                                          </div>
+                                        )}
+                                      </div>
+                                    ))}
+                                    {(plan.selected_users || []).length > 5 && (
+                                      <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                                        +{plan.selected_users.length - 5}
+                                      </span>
+                                    )}
+                                  </div>
+                                ) : (
+                                  <span className="text-xs text-gray-400">暂无用户选择</span>
+                                )}
+                              </div>
+                              <div className="flex items-center justify-end gap-3 ml-auto">
+                                <button
+                                  type="button"
+                                  onClick={() => loadPlanDetails(plan.id)}
+                                  className="h-9 px-1 text-gray-500 hover:text-primary transition-colors"
+                                  title="查看经文列表"
+                                  aria-label="查看经文列表"
+                                >
+                                  <IconList />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => openSelectPlanModal(plan)}
+                                  className="h-9 px-1 text-gray-500 hover:text-primary transition-colors"
+                                  title="选择此列表"
+                                  aria-label="选择此列表"
+                                >
+                                  <IconBookmarkPlus />
+                                </button>
+                              </div>
+                            </div>
                           </div>
                         </div>
                       </div>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'plan-detail' && (
+            <div className="space-y-6 max-w-3xl mx-auto pt-4 md:pt-6">
+              <button
+                type="button"
+                onClick={() => setActiveTab('plan')}
+                className="text-sm text-primary hover:underline"
+              >
+                返回计划列表
+              </button>
+
+              {selectedPlanLoading ? (
+                <div className="text-center text-gray-500">正在加载经文列表...</div>
+              ) : selectedPlanError ? (
+                <div className="text-center text-red-500">{selectedPlanError}</div>
+              ) : selectedPlan && (
+                <>
+                  <div className="rounded-2xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <h2 className="text-2xl font-bold">{selectedPlan.plan_name}</h2>
+                        <p className="text-gray-500 dark:text-gray-300 mt-2">{selectedPlan.description}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => openSelectPlanModal(selectedPlan)}
+                        className="px-6 py-3 rounded-xl bg-primary text-white font-medium hover:bg-blue-600 transition-colors"
+                      >
+                        选择此列表
+                      </button>
+                    </div>
                   </div>
-                ))}
-              </div>
+
+                  <div className="space-y-3">
+                    {selectedPlanVerses.map((verse) => (
+                      <div
+                        key={verse.id}
+                        className="rounded-2xl shadow-sm p-5"
+                        style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+                      >
+                        <p className="text-sm text-gray-400 mb-2">{verse.orderIndex}. {verse.referenceCN}</p>
+                        <p className="text-base leading-7 mb-2">{verse.chinese}</p>
+                        <p className="text-sm italic text-gray-500">{verse.english}</p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1064,7 +1479,7 @@ function App() {
             <div className="space-y-6 max-w-3xl mx-auto pt-4">
               <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                 <p className="dark:text-white mb-2" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>
-                  <Show when="signed-in">用户</Show>
+                  <Show when="signed-in">{displayUsername}</Show>
                   <Show when="signed-out">访客</Show>
                   ，你已经背了
                 </p>
@@ -1082,14 +1497,14 @@ function App() {
                   <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
                   已会背的经文
                 </h3>
-                {masteredVerses.length === 0 ? (
+                {(isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length) === 0 ? (
                   <p className="text-gray-500 text-center py-4">还没有会背的经文</p>
                 ) : (
                   <div className="space-y-3">
-                    {masteredVerses.map(mv => {
-                      const verse = allVerses.find(v => v.id === mv.id);
+                    {(isSignedIn ? memorizationData.masteredVerses : masteredVerses).map(mv => {
+                      const verse = isSignedIn ? mv : allVerses.find(v => v.id === mv.id);
                       return (
-                        <div key={mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
+                        <div key={isSignedIn ? mv.userVerseId : mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
                           <div>
                             <p className="font-bold text-primary">{verse?.referenceCN}</p>
                             <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse?.chinese}</p>
@@ -1097,7 +1512,7 @@ function App() {
                           </div>
                           <div className="mt-3 text-right text-xs text-gray-500 dark:text-gray-300 leading-5">
                             <p className="text-green-600 font-medium">已掌握</p>
-                            <p>{mv.date}</p>
+                            <p>{isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}</p>
                           </div>
                         </div>
                       );
@@ -1272,6 +1687,47 @@ function App() {
           )}
         </main>
       </div>
+
+      {showSelectPlanModal && selectedPlan && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+          <div className="rounded-2xl shadow-xl p-6 max-w-md w-full" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+            <h3 className="text-xl font-bold mb-3">将[{selectedPlan.plan_name}]中经文加入背诵</h3>
+            <label className="flex items-start gap-3 py-4">
+              <input
+                type="checkbox"
+                checked={clearCurrentPlanSelection}
+                onChange={(event) => setClearCurrentPlanSelection(event.target.checked)}
+                className="mt-1"
+              />
+              <span>清空当前背诵经文</span>
+            </label>
+            {selectedPlanError && (
+              <p className="text-sm text-red-500 mb-4">{selectedPlanError}</p>
+            )}
+            <div className="flex gap-3 justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowSelectPlanModal(false);
+                  setClearCurrentPlanSelection(false);
+                }}
+                className="px-4 py-2 rounded-xl border"
+                style={{ borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleSelectPlan}
+                disabled={isSelectingPlan}
+                className="px-4 py-2 rounded-xl bg-primary text-white hover:bg-blue-600 disabled:opacity-60"
+              >
+                {isSelectingPlan ? '确认中...' : '确认'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 下一组弹窗 */}
       {showNextGroupModal && (
