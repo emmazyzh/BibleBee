@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { Show, useClerk, useUser } from '@clerk/react'
 import './App.css'
+import {
+  addPendingOperation,
+  clearPendingOperations,
+  getPendingOperations,
+  getStaticJson,
+  getUserCache,
+  setStaticJson,
+  setUserCache,
+} from './lib/indexed-db.js'
 
 async function fetchJson(url, options) {
   const response = await fetch(url, {
@@ -20,6 +29,9 @@ async function fetchJson(url, options) {
 
   return payload
 }
+
+const SYNC_DEBOUNCE_MS = 10 * 60 * 1000
+const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 
 // 所有可用经文数据
 const allVerses = [
@@ -188,20 +200,67 @@ function FillInMode({ verse, darkMode }) {
   const originalSource = verse?.chinese || blankSource;
   const segments = [];
 
-  if (blankSource && originalSource && blankSource.length === originalSource.length) {
-    let cursor = 0;
-    while (cursor < blankSource.length) {
-      const isBlank = blankSource[cursor] === '#';
-      let nextCursor = cursor + 1;
+  if (blankSource && originalSource && blankSource.includes('#')) {
+    const blankParts = [];
+    let blankCursor = 0;
+
+    while (blankCursor < blankSource.length) {
+      const isBlank = blankSource[blankCursor] === '#';
+      let nextCursor = blankCursor + 1;
+
       while (nextCursor < blankSource.length && (blankSource[nextCursor] === '#') === isBlank) {
         nextCursor += 1;
       }
-      segments.push({
-        token: originalSource.slice(cursor, nextCursor),
+
+      blankParts.push({
+        text: blankSource.slice(blankCursor, nextCursor),
         isBlank,
       });
-      cursor = nextCursor;
+      blankCursor = nextCursor;
     }
+
+    let originalCursor = 0;
+
+    blankParts.forEach((part, index) => {
+      if (!part.isBlank) {
+        if (originalSource.startsWith(part.text, originalCursor)) {
+          segments.push({ token: part.text, isBlank: false });
+          originalCursor += part.text.length;
+        }
+        return;
+      }
+
+      const nextLiteral = blankParts.slice(index + 1).find((item) => !item.isBlank)?.text || '';
+
+      if (!nextLiteral) {
+        const remaining = originalSource.slice(originalCursor);
+        if (remaining) {
+          segments.push({ token: remaining, isBlank: true });
+        }
+        originalCursor = originalSource.length;
+        return;
+      }
+
+      const nextLiteralIndex = originalSource.indexOf(nextLiteral, originalCursor);
+
+      if (nextLiteralIndex === -1) {
+        const remaining = originalSource.slice(originalCursor);
+        if (remaining) {
+          segments.push({ token: remaining, isBlank: true });
+          originalCursor = originalSource.length;
+        }
+        return;
+      }
+
+      if (nextLiteralIndex > originalCursor) {
+        segments.push({
+          token: originalSource.slice(originalCursor, nextLiteralIndex),
+          isBlank: true,
+        });
+      }
+
+      originalCursor = nextLiteralIndex;
+    });
   } else if (originalSource) {
     segments.push({
       token: originalSource,
@@ -242,6 +301,126 @@ function FillInMode({ verse, darkMode }) {
       <p className="text-sm text-gray-400 mt-6">点击空格查看关键词</p>
     </div>
   );
+}
+
+function getLocalNextReviewDate(nextReviewCount) {
+  const offsetDays = REVIEW_INTERVALS_IN_DAYS[Math.min(nextReviewCount - 1, REVIEW_INTERVALS_IN_DAYS.length - 1)];
+  const next = new Date();
+  next.setDate(next.getDate() + offsetDays);
+  return next.toISOString();
+}
+
+function mergeSelectedUsers(selectedUsers, currentUser) {
+  const nextUsers = Array.isArray(selectedUsers) ? [...selectedUsers] : [];
+
+  if (!currentUser?.id || nextUsers.some((item) => item.id === currentUser.id)) {
+    return nextUsers;
+  }
+
+  nextUsers.push({
+    id: currentUser.id,
+    username: currentUser.username,
+    image_url: currentUser.imageUrl,
+    joined_at: new Date().toISOString(),
+  });
+
+  return nextUsers;
+}
+
+function applyReviewMutation(memorizationData, payload) {
+  if (payload.action === 'skip') {
+    return memorizationData;
+  }
+
+  const activeVerses = [...memorizationData.activeVerses];
+  const masteredVerses = [...memorizationData.masteredVerses];
+  const verseIndex = activeVerses.findIndex((item) => item.userVerseId === payload.userVerseId);
+
+  if (verseIndex === -1) {
+    return memorizationData;
+  }
+
+  const verse = activeVerses[verseIndex];
+
+  if (payload.action === 'mastered') {
+    const nextReviewCount = (verse.reviewCount || 0) + 1;
+    const updatedVerse = {
+      ...verse,
+      status: 'mastered',
+      reviewCount: nextReviewCount,
+      masteryDate: new Date().toISOString(),
+      nextReviewDate: getLocalNextReviewDate(nextReviewCount),
+      modifiedAt: new Date().toISOString(),
+    };
+
+    activeVerses.splice(verseIndex, 1);
+    masteredVerses.push(updatedVerse);
+
+    return { activeVerses, masteredVerses };
+  }
+
+  activeVerses[verseIndex] = {
+    ...verse,
+    status: verse.status === 'relearning' ? 'relearning' : 'learning',
+    nextReviewDate: null,
+    modifiedAt: new Date().toISOString(),
+  };
+
+  return { activeVerses, masteredVerses };
+}
+
+function applySelectPlanMutation(memorizationData, planVerses, clearCurrent, planId) {
+  let activeVerses = [...memorizationData.activeVerses];
+  let masteredVerses = [...memorizationData.masteredVerses];
+
+  if (clearCurrent) {
+    const relearningVerses = activeVerses
+      .filter((verse) => verse.status === 'relearning')
+      .map((verse) => ({
+        ...verse,
+        status: 'mastered',
+        nextReviewDate: null,
+        modifiedAt: new Date().toISOString(),
+      }));
+
+    activeVerses = activeVerses.filter((verse) => verse.status !== 'learning' && verse.status !== 'relearning');
+    masteredVerses = [...masteredVerses, ...relearningVerses];
+  }
+
+  const activeByVerseId = new Map(activeVerses.map((verse) => [verse.id, verse]));
+  const masteredByVerseId = new Map(masteredVerses.map((verse) => [verse.id, verse]));
+
+  for (const verse of planVerses) {
+    if (!activeByVerseId.has(verse.id) && !masteredByVerseId.has(verse.id)) {
+      activeVerses.push({
+        ...verse,
+        userVerseId: `local-${planId}-${verse.id}`,
+        status: 'learning',
+        reviewCount: 0,
+        nextReviewDate: null,
+        masteryDate: null,
+        modifiedAt: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    if (masteredByVerseId.has(verse.id)) {
+      const masteredVerse = masteredByVerseId.get(verse.id);
+      masteredVerses = masteredVerses.filter((item) => item.id !== verse.id);
+      activeVerses.push({
+        ...masteredVerse,
+        ...verse,
+        status: 'relearning',
+        reviewCount: 0,
+        masteryDate: null,
+        nextReviewDate: null,
+        modifiedAt: new Date().toISOString(),
+      });
+    }
+  }
+
+  return { activeVerses, masteredVerses };
 }
 
 function App() {
@@ -296,6 +475,8 @@ function App() {
   const avatarInputRef = useRef(null);
   const accountMenuRef = useRef(null);
   const planDetailsCacheRef = useRef({});
+  const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
+  const syncTimeoutRef = useRef(null);
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
 
@@ -346,29 +527,17 @@ function App() {
     };
 
     planDetailsCacheRef.current[planId] = detail;
+    await persistUserSnapshot({
+      planDetails: {
+        ...cacheSnapshotRef.current.planDetails,
+        [planId]: detail,
+      },
+    });
     return detail;
   };
 
   const loadPlans = async () => {
-    if (!isSignedIn) return;
-
-    try {
-      setPlansLoading(true);
-      setPlansError('');
-      const result = await fetchJson('/api/plans');
-      const nextPlans = (result.plans || []).map((plan) => ({
-        ...plan,
-        selected_users: normalizeSelectedUsers(plan.selected_users),
-      }));
-      setPlans(nextPlans);
-      nextPlans.forEach((plan) => {
-        void preloadPlanDetails(plan.id);
-      });
-    } catch (error) {
-      setPlansError(error.message);
-    } finally {
-      setPlansLoading(false);
-    }
+    await loadBootstrapData();
   };
 
   const loadPlanDetails = async (planId, nextTab = 'plan-detail') => {
@@ -388,21 +557,7 @@ function App() {
   };
 
   const loadMemorizationData = async () => {
-    if (!isSignedIn) return;
-
-    try {
-      setMemorizationLoading(true);
-      setMemorizationError('');
-      const result = await fetchJson('/api/memorization');
-      setMemorizationData({
-        activeVerses: result.activeVerses || [],
-        masteredVerses: result.masteredVerses || [],
-      });
-    } catch (error) {
-      setMemorizationError(error.message);
-    } finally {
-      setMemorizationLoading(false);
-    }
+    await loadBootstrapData();
   };
 
   const getDefaultUsername = (email = '') => {
@@ -418,6 +573,157 @@ function App() {
   const primaryEmail = user?.primaryEmailAddress?.emailAddress || '';
   const displayedAvatar = avatarPreview || user?.imageUrl || '';
   const displayUsername = savedUsername || usernameInput || user?.username || '用户';
+
+  const persistUserSnapshot = async (overrides = {}) => {
+    if (!user?.id) return;
+
+    const snapshot = {
+      plans: cacheSnapshotRef.current.plans,
+      planDetails: cacheSnapshotRef.current.planDetails,
+      memorizationData: cacheSnapshotRef.current.memorizationData,
+      ...overrides,
+    };
+
+    cacheSnapshotRef.current = snapshot;
+    await setUserCache(user.id, snapshot);
+  };
+
+  const applyBootstrapPayload = async (payload) => {
+    const nextPlans = (payload.plans || []).map((plan) => ({
+      ...plan,
+      selected_users: normalizeSelectedUsers(plan.selected_users),
+    }));
+    const nextPlanDetails = payload.planDetails || {};
+    const nextMemorizationData = payload.memorizationData || { activeVerses: [], masteredVerses: [] };
+
+    setPlans(nextPlans);
+    planDetailsCacheRef.current = nextPlanDetails;
+    setMemorizationData(nextMemorizationData);
+
+    if (selectedPlanId && nextPlanDetails[selectedPlanId]) {
+      setSelectedPlan(nextPlanDetails[selectedPlanId].plan);
+      setSelectedPlanVerses(nextPlanDetails[selectedPlanId].verses || []);
+    }
+
+    await persistUserSnapshot({
+      plans: nextPlans,
+      planDetails: nextPlanDetails,
+      memorizationData: nextMemorizationData,
+    });
+  };
+
+  const ensureStaticJsonCached = async (name) => {
+    const existing = await getStaticJson(name);
+    if (existing) return;
+
+    const result = await fetchJson(`/api/static-data?name=${name}`);
+    await setStaticJson(name, result.data);
+  };
+
+  const loadBootstrapData = async (showLoader = true) => {
+    if (!isSignedIn) return;
+
+    try {
+      if (showLoader) {
+        setPlansLoading(true);
+        setMemorizationLoading(true);
+      }
+      setPlansError('');
+      setMemorizationError('');
+      const result = await fetchJson('/api/bootstrap');
+      await applyBootstrapPayload(result);
+    } catch (error) {
+      try {
+        const [plansResult, memorizationResult] = await Promise.all([
+          fetchJson('/api/plans'),
+          fetchJson('/api/memorization'),
+        ]);
+
+        const nextPlans = (plansResult.plans || []).map((plan) => ({
+          ...plan,
+          selected_users: normalizeSelectedUsers(plan.selected_users),
+        }));
+
+        setPlans(nextPlans);
+        setMemorizationData({
+          activeVerses: memorizationResult.activeVerses || [],
+          masteredVerses: memorizationResult.masteredVerses || [],
+        });
+
+        nextPlans.forEach((plan) => {
+          void preloadPlanDetails(plan.id);
+        });
+
+        await persistUserSnapshot({
+          plans: nextPlans,
+          memorizationData: {
+            activeVerses: memorizationResult.activeVerses || [],
+            masteredVerses: memorizationResult.masteredVerses || [],
+          },
+        });
+      } catch (fallbackError) {
+        setPlansError(fallbackError.message || error.message);
+        setMemorizationError(fallbackError.message || error.message);
+      }
+    } finally {
+      if (showLoader) {
+        setPlansLoading(false);
+        setMemorizationLoading(false);
+      }
+    }
+  };
+
+  const syncPendingOperationsToServer = async ({ keepalive = false } = {}) => {
+    if (!user?.id) return false;
+
+    const pendingRecords = await getPendingOperations(user.id);
+    if (pendingRecords.length === 0) {
+      return false;
+    }
+
+    const response = await fetch('/api/sync', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        operations: pendingRecords.map((record) => record.operation),
+      }),
+      keepalive,
+    });
+
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.error || '同步失败，请稍后重试');
+    }
+
+    await clearPendingOperations(pendingRecords.map((record) => record.id));
+    return true;
+  };
+
+  const schedulePendingSync = () => {
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+    }
+
+    syncTimeoutRef.current = window.setTimeout(() => {
+      void syncPendingOperationsToServer().catch(() => {});
+    }, SYNC_DEBOUNCE_MS);
+  };
+
+  const queuePendingOperation = async (operation, { immediate = false } = {}) => {
+    if (!user?.id) return;
+
+    await addPendingOperation(user.id, operation);
+
+    if (immediate) {
+      await syncPendingOperationsToServer();
+      return;
+    }
+
+    schedulePendingSync();
+  };
 
   useEffect(() => {
     if (!user) {
@@ -436,6 +742,14 @@ function App() {
     setAvatarPreview('');
     setSelectedAvatarFile(null);
   }, [user?.id, user?.username, user?.imageUrl, primaryEmail]);
+
+  useEffect(() => {
+    cacheSnapshotRef.current = {
+      plans,
+      planDetails: planDetailsCacheRef.current,
+      memorizationData,
+    };
+  }, [plans, memorizationData]);
 
   useEffect(() => {
     if (!user || user.username || !primaryEmail) return;
@@ -466,6 +780,11 @@ function App() {
   }, []);
 
   useEffect(() => {
+    void ensureStaticJsonCached('plans').catch(() => {});
+    void ensureStaticJsonCached('combined').catch(() => {});
+  }, []);
+
+  useEffect(() => {
     if (!isUserLoaded) return;
 
     if (!isSignedIn) {
@@ -474,12 +793,51 @@ function App() {
       setSelectedPlanVerses([]);
       setMemorizationData({ activeVerses: [], masteredVerses: [] });
       planDetailsCacheRef.current = {};
+      cacheSnapshotRef.current = { plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } };
+      if (syncTimeoutRef.current) {
+        clearTimeout(syncTimeoutRef.current);
+        syncTimeoutRef.current = null;
+      }
       return;
     }
 
-    loadPlans();
-    loadMemorizationData();
+    void (async () => {
+      const cachedData = await getUserCache(user.id);
+
+      if (cachedData) {
+        const cachedPlans = (cachedData.plans || []).map((plan) => ({
+          ...plan,
+          selected_users: normalizeSelectedUsers(plan.selected_users),
+        }));
+
+        setPlans(cachedPlans);
+        planDetailsCacheRef.current = cachedData.planDetails || {};
+        setMemorizationData(cachedData.memorizationData || { activeVerses: [], masteredVerses: [] });
+      }
+
+      try {
+        await syncPendingOperationsToServer();
+      } catch (_error) {
+        schedulePendingSync();
+      }
+
+      await loadBootstrapData(!cachedData);
+    })();
   }, [isUserLoaded, isSignedIn, user?.id]);
+
+  useEffect(() => {
+    const handlePageExit = () => {
+      void syncPendingOperationsToServer({ keepalive: true }).catch(() => {});
+    };
+
+    window.addEventListener('pagehide', handlePageExit);
+    window.addEventListener('beforeunload', handlePageExit);
+
+    return () => {
+      window.removeEventListener('pagehide', handlePageExit);
+      window.removeEventListener('beforeunload', handlePageExit);
+    };
+  }, [user?.id]);
 
   const handleOpenAvatarPicker = () => {
     avatarInputRef.current?.click();
@@ -693,20 +1051,24 @@ function App() {
     try {
       setIsSubmittingReview(true);
       setMemorizationError('');
-      await fetchJson('/api/memorization/review', {
-        method: 'POST',
-        body: JSON.stringify({
-          userVerseId: currentVerse.userVerseId,
-          action,
-        }),
-      });
+      const payload = {
+        userVerseId: currentVerse.userVerseId,
+        action,
+      };
 
       if (action === 'skip') {
         goToNextVerse();
         return;
       }
 
-      await loadMemorizationData();
+      const nextMemorizationData = applyReviewMutation(memorizationData, payload);
+      setMemorizationData(nextMemorizationData);
+      await persistUserSnapshot({ memorizationData: nextMemorizationData });
+      await queuePendingOperation({ type: 'review', payload });
+
+      if (action === 'again') {
+        goToNextVerse();
+      }
     } catch (error) {
       setMemorizationError(error.message);
     } finally {
@@ -720,16 +1082,55 @@ function App() {
     try {
       setIsSelectingPlan(true);
       setSelectedPlanError('');
-      await fetchJson(`/api/plans/${selectedPlan.id}/select`, {
-        method: 'POST',
-        body: JSON.stringify({
-          clearCurrent: clearCurrentPlanSelection,
-        }),
+      const currentUserInfo = {
+        id: user?.id,
+        username: displayUsername,
+        imageUrl: user?.imageUrl || '',
+      };
+      const nextPlans = plans.map((plan) => plan.id === selectedPlan.id ? {
+        ...plan,
+        is_selected: 1,
+        selected_users: mergeSelectedUsers(plan.selected_users || [], currentUserInfo),
+      } : plan);
+      const nextSelectedPlan = {
+        ...selectedPlan,
+        is_selected: 1,
+        selected_users: mergeSelectedUsers(selectedPlan.selected_users || [], currentUserInfo),
+      };
+      const nextPlanDetails = {
+        ...planDetailsCacheRef.current,
+        [selectedPlan.id]: {
+          plan: nextSelectedPlan,
+          verses: selectedPlanVerses,
+        },
+      };
+      const nextMemorizationData = applySelectPlanMutation(
+        memorizationData,
+        selectedPlanVerses,
+        clearCurrentPlanSelection,
+        selectedPlan.id,
+      );
+
+      setPlans(nextPlans);
+      setSelectedPlan(nextSelectedPlan);
+      setMemorizationData(nextMemorizationData);
+      planDetailsCacheRef.current = nextPlanDetails;
+      await persistUserSnapshot({
+        plans: nextPlans,
+        planDetails: nextPlanDetails,
+        memorizationData: nextMemorizationData,
       });
+      await queuePendingOperation({
+        type: 'selectPlan',
+        payload: {
+          planId: selectedPlan.id,
+          clearCurrent: clearCurrentPlanSelection,
+        },
+      }, { immediate: true });
 
       setShowSelectPlanModal(false);
       setClearCurrentPlanSelection(false);
-      await Promise.all([loadPlans(), loadMemorizationData()]);
+      await loadBootstrapData();
       setCurrentVerseIndex(0);
       setActiveTab('memorization');
     } catch (error) {
@@ -1334,7 +1735,7 @@ function App() {
                         onClick={() => openSelectPlanModal(selectedPlan)}
                         className="px-6 py-3 rounded-xl bg-primary text-white font-medium hover:bg-blue-600 transition-colors"
                       >
-                        选择此列表
+                        添加到我的背诵
                       </button>
                     </div>
                   </div>
@@ -1495,7 +1896,7 @@ function App() {
               <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                 <h3 className="text-lg font-bold mb-4 flex items-center">
                   <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                  已会背的经文
+                  已会背
                 </h3>
                 {(isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length) === 0 ? (
                   <p className="text-gray-500 text-center py-4">还没有会背的经文</p>
@@ -1524,7 +1925,7 @@ function App() {
               <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                 <h3 className="text-lg font-bold mb-4 flex items-center">
                   <span className="w-2 h-2 bg-orange-400 rounded-full mr-2"></span>
-                  待背诵的经文
+                  待背诵
                 </h3>
                 {pendingVerses.length === 0 ? (
                   <p className="text-gray-500 text-center py-4">没有待背诵的经文</p>
@@ -1691,7 +2092,7 @@ function App() {
       {showSelectPlanModal && selectedPlan && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="rounded-2xl shadow-xl p-6 max-w-md w-full" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-            <h3 className="text-xl font-bold mb-3">将[{selectedPlan.plan_name}]中经文加入背诵</h3>
+            <h3 className="text-xl font-bold mb-3">开始背【{selectedPlan.plan_name}】</h3>
             <label className="flex items-start gap-3 py-4">
               <input
                 type="checkbox"
@@ -1699,7 +2100,7 @@ function App() {
                 onChange={(event) => setClearCurrentPlanSelection(event.target.checked)}
                 className="mt-1"
               />
-              <span>清空当前背诵经文</span>
+              <span>清空当前背诵</span>
             </label>
             {selectedPlanError && (
               <p className="text-sm text-red-500 mb-4">{selectedPlanError}</p>
