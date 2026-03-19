@@ -174,11 +174,18 @@ Cloudflare 配置文件：
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `VITE_CLERK_PUBLISHABLE_KEY`
+- 可选：
+  - `VITE_CLOUDFLARE_APP_URL`
+  - `VITE_VERCEL_APP_URL`
+  - `VITE_PRIMARY_API_BASE_URL`
+  - `VITE_FALLBACK_API_BASE_URL`
 
 说明：
 
 - 这个 workflow 只负责构建和执行 `wrangler deploy`
-- Neon、Clerk、主备 API 等业务环境变量，仍然建议保留在 Cloudflare 后台配置
+- `VITE_*` 前端变量需要在 GitHub Actions 构建时注入
+- Neon、Clerk 服务端密钥、`FRONTEND_ORIGINS` 等运行时变量，仍然建议保留在 Cloudflare 后台配置
 - 不建议把数据库连接串和 Clerk 密钥直接写进 GitHub Actions workflow
 
 ## Vercel 部署

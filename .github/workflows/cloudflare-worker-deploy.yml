@@ -27,6 +27,12 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
+          VITE_CLOUDFLARE_APP_URL: ${{ secrets.VITE_CLOUDFLARE_APP_URL }}
+          VITE_VERCEL_APP_URL: ${{ secrets.VITE_VERCEL_APP_URL }}
+          VITE_PRIMARY_API_BASE_URL: ${{ secrets.VITE_PRIMARY_API_BASE_URL }}
+          VITE_FALLBACK_API_BASE_URL: ${{ secrets.VITE_FALLBACK_API_BASE_URL }}
         run: npm run build
 
       - name: Deploy to Cloudflare
