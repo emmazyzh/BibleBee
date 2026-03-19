@@ -37,10 +37,12 @@ jobs:
 
       - name: Sync Cloudflare runtime secrets
         env:
+          VITE_CLERK_PUBLISHABLE_KEY: ${{ secrets.VITE_CLERK_PUBLISHABLE_KEY }}
           CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
           BIBLEBEE_DATABASE_URL: ${{ secrets.BIBLEBEE_DATABASE_URL }}
           FRONTEND_ORIGINS: ${{ secrets.FRONTEND_ORIGINS }}
         run: |
+          printf "%s" "$VITE_CLERK_PUBLISHABLE_KEY" | npx wrangler secret put CLERK_PUBLISHABLE_KEY
           printf "%s" "$CLERK_SECRET_KEY" | npx wrangler secret put CLERK_SECRET_KEY
           printf "%s" "$BIBLEBEE_DATABASE_URL" | npx wrangler secret put BIBLEBEE_DATABASE_URL
           printf "%s" "$FRONTEND_ORIGINS" | npx wrangler secret put FRONTEND_ORIGINS
