@@ -1,16 +1,15 @@
-import combinedData from '../../data/combined.json' with { type: 'json' }
-import plansData from '../../data/plans.json' with { type: 'json' }
+import { loadStaticJson } from '../lib/static-data.js'
 
 export function registerStaticDataRoutes(app) {
-  app.get('/api/static-data', (c) => {
+  app.get('/api/static-data', async (c) => {
     const name = c.req.query('name')
 
     if (name === 'combined') {
-      return c.json({ ok: true, name, data: combinedData })
+      return c.json({ ok: true, name, data: await loadStaticJson(name, c.env) })
     }
 
     if (name === 'plans') {
-      return c.json({ ok: true, name, data: plansData })
+      return c.json({ ok: true, name, data: await loadStaticJson(name, c.env) })
     }
 
     return c.json({ ok: false, error: 'Static data not found' }, 404)

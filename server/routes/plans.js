@@ -70,10 +70,12 @@ export function registerPlanRoutes(app) {
         ORDER BY order_index ASC
       `
 
-      const verses = planVerses.map((item) => ({
-        orderIndex: item.order_index,
-        ...getVerseDetails(item.verse_id),
-      }))
+      const verses = await Promise.all(
+        planVerses.map(async (item) => ({
+          orderIndex: item.order_index,
+          ...(await getVerseDetails(item.verse_id, c.env)),
+        })),
+      )
 
       return c.json({
         ok: true,

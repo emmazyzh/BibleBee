@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
-    "cf:build": "vite build",
+    "build": "vite build && mkdir -p dist/data && cp data/*.json dist/data/",
+    "cf:build": "npm run build",
     "cf:dev": "wrangler dev",
     "cf:deploy": "wrangler deploy",
     "lint": "eslint .",

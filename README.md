@@ -253,6 +253,13 @@ Clerk webhook 地址示例：
 
 挖空文本使用预先计算好的 `cuv_blank`。
 
+说明：
+
+- 这两份大 JSON 不会再被打进 Cloudflare Worker bundle
+- 构建时会复制到 `dist/data/`
+- Worker 运行时通过静态资源按需读取并做内存缓存
+- 这样可以避免触发 Cloudflare 免费版 Worker 的 3 MiB 脚本体积限制
+
 经文读取优先级：
 
 1. `plans.json`

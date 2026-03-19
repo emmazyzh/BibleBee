@@ -33,16 +33,18 @@ export function registerMemorizationRoutes(app) {
         ORDER BY created_at ASC
       `
 
-      const verses = rows.map((row) => ({
-        userVerseId: row.id,
-        status: row.status,
-        masteryDate: row.mastery_date,
-        reviewCount: row.review_count,
-        nextReviewDate: row.next_review_date,
-        modifiedAt: row.modified_at,
-        createdAt: row.created_at,
-        ...getVerseDetails(row.verse_id),
-      }))
+      const verses = await Promise.all(
+        rows.map(async (row) => ({
+          userVerseId: row.id,
+          status: row.status,
+          masteryDate: row.mastery_date,
+          reviewCount: row.review_count,
+          nextReviewDate: row.next_review_date,
+          modifiedAt: row.modified_at,
+          createdAt: row.created_at,
+          ...(await getVerseDetails(row.verse_id, c.env)),
+        })),
+      )
 
       return c.json({
         ok: true,
