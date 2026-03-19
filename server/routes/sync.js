@@ -168,6 +168,66 @@ async function applySelectPlanOperation(sql, user, payload) {
   return { ok: true, planId, planName: plan.plan_name, verseCount: planVerses.length }
 }
 
+async function applyAddVerseOperation(sql, user, payload) {
+  const { verseId } = payload || {}
+
+  if (!verseId) {
+    throw new ApiError(400, 'Missing verse id')
+  }
+
+  const [existing] = await sql`
+    SELECT id, status
+    FROM user_verse
+    WHERE user_id = ${user.id}
+      AND verse_id = ${verseId}
+    LIMIT 1
+  `
+
+  if (!existing) {
+    const id = crypto.randomUUID()
+
+    await sql`
+      INSERT INTO user_verse (
+        id,
+        user_id,
+        verse_id,
+        status,
+        review_count,
+        next_review_date,
+        mastery_date
+      )
+      VALUES (
+        ${id},
+        ${user.id},
+        ${verseId},
+        'learning',
+        0,
+        NULL,
+        NULL
+      )
+    `
+
+    return { ok: true, verseId, status: 'learning', created: true }
+  }
+
+  if (existing.status === 'mastered') {
+    await sql`
+      UPDATE user_verse
+      SET
+        status = 'relearning',
+        review_count = 0,
+        mastery_date = NULL,
+        next_review_date = NULL,
+        modified_at = NOW()
+      WHERE id = ${existing.id}
+    `
+
+    return { ok: true, verseId, status: 'relearning', updated: true }
+  }
+
+  return { ok: true, verseId, status: existing.status, ignored: true }
+}
+
 export function registerSyncRoute(app) {
   app.post('/api/sync', async (c) => {
     try {
@@ -189,6 +249,11 @@ export function registerSyncRoute(app) {
 
         if (operation?.type === 'selectPlan') {
           results.push(await applySelectPlanOperation(sql, user, operation.payload))
+          continue
+        }
+
+        if (operation?.type === 'addVerse') {
+          results.push(await applyAddVerseOperation(sql, user, operation.payload))
           continue
         }
 

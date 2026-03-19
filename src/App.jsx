@@ -11,6 +11,7 @@ import {
   setUserCache,
 } from './lib/indexed-db.js'
 import { fetchApiJson, setApiTokenProvider } from './lib/api-client.js'
+import { getVerseDetailsFromStaticData } from './lib/bible-data.js'
 
 const SYNC_DEBOUNCE_MS = 10 * 60 * 1000
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
@@ -406,6 +407,46 @@ function applySelectPlanMutation(memorizationData, planVerses, clearCurrent, pla
   return { activeVerses, masteredVerses };
 }
 
+function applyAddVerseMutation(memorizationData, verse) {
+  const activeVerses = [...memorizationData.activeVerses];
+  const masteredVerses = [...memorizationData.masteredVerses];
+  const activeIndex = activeVerses.findIndex((item) => item.id === verse.id);
+  const masteredIndex = masteredVerses.findIndex((item) => item.id === verse.id);
+
+  if (activeIndex !== -1) {
+    return memorizationData;
+  }
+
+  if (masteredIndex !== -1) {
+    const masteredVerse = masteredVerses[masteredIndex];
+    masteredVerses.splice(masteredIndex, 1);
+    activeVerses.unshift({
+      ...masteredVerse,
+      ...verse,
+      status: 'relearning',
+      reviewCount: 0,
+      masteryDate: null,
+      nextReviewDate: null,
+      modifiedAt: new Date().toISOString(),
+    });
+
+    return { activeVerses, masteredVerses };
+  }
+
+  activeVerses.unshift({
+    ...verse,
+    userVerseId: `local-search-${verse.id}`,
+    status: 'learning',
+    reviewCount: 0,
+    nextReviewDate: null,
+    masteryDate: null,
+    modifiedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  });
+
+  return { activeVerses, masteredVerses };
+}
+
 function buildBibleSearchResults(combinedData, query) {
   const trimmedQuery = query.trim();
   const normalizedQuery = trimmedQuery.toLowerCase();
@@ -445,6 +486,96 @@ function buildBibleSearchResults(combinedData, query) {
   return results.slice(0, 100);
 }
 
+function getSearchTokens(query) {
+  const trimmedQuery = query.trim();
+
+  if (!trimmedQuery) {
+    return [];
+  }
+
+  const parts = trimmedQuery
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return parts.length > 0 ? parts : [trimmedQuery];
+}
+
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function renderHighlightedText(text, query) {
+  if (!text) {
+    return text;
+  }
+
+  const tokens = getSearchTokens(query);
+
+  if (tokens.length === 0) {
+    return text;
+  }
+
+  const pattern = new RegExp(`(${tokens.map(escapeRegExp).join('|')})`, 'gi');
+  const parts = text.split(pattern);
+
+  return parts.map((part, index) => {
+    if (!part) {
+      return null;
+    }
+
+    const isMatch = tokens.some((token) => part.toLowerCase() === token.toLowerCase());
+
+    if (!isMatch) {
+      return <span key={`${part}-${index}`}>{part}</span>;
+    }
+
+    return (
+      <mark
+        key={`${part}-${index}`}
+        className="rounded px-1 py-0.5"
+        style={{ backgroundColor: '#fef08a', color: '#854d0e' }}
+      >
+        {part}
+      </mark>
+    );
+  });
+}
+
+function hydrateVerseRecord(record, staticData, settings) {
+  if (!record) {
+    return record
+  }
+
+  const verseId = record.verseId || record.verse_id || record.id
+  if (!verseId || !staticData?.combined || !staticData?.plans) {
+    return {
+      ...record,
+      id: verseId || record.id,
+      verseId: verseId || record.verseId,
+    }
+  }
+
+  return {
+    ...record,
+    ...getVerseDetailsFromStaticData(verseId, staticData.combined, staticData.plans, {
+      english: settings.englishVersion,
+      chinese: settings.chineseVersion,
+    }),
+  }
+}
+
+function hydratePlanDetail(detail, staticData, settings) {
+  if (!detail) {
+    return detail
+  }
+
+  return {
+    plan: detail.plan,
+    verses: (detail.verses || []).map((verse) => hydrateVerseRecord(verse, staticData, settings)),
+  }
+}
+
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -462,6 +593,8 @@ function App() {
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
   const [searchLoading, setSearchLoading] = useState(false);
+  const [staticDataUpdating, setStaticDataUpdating] = useState(false);
+  const [staticDataMessage, setStaticDataMessage] = useState('');
 
   const [settings, setSettings] = useState({
     chineseVersion: 'cuv',
@@ -501,6 +634,7 @@ function App() {
   const planDetailsCacheRef = useRef({});
   const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
   const syncTimeoutRef = useRef(null);
+  const staticDataRef = useRef({ combined: null, plans: null });
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
@@ -554,16 +688,75 @@ function App() {
     return dedupedUsers;
   };
 
+  const getStaticDataSnapshot = async () => {
+    let combined = staticDataRef.current.combined;
+    let plansData = staticDataRef.current.plans;
+
+    if (!combined) {
+      combined = await getStaticJson('combined');
+    }
+
+    if (!plansData) {
+      plansData = await getStaticJson('plans');
+    }
+
+    if (!combined || !plansData) {
+      throw new Error('本地圣经数据尚未下载完成');
+    }
+
+    staticDataRef.current = { combined, plans: plansData };
+    return staticDataRef.current;
+  };
+
+  const ensureStaticJsonCached = async (name, { force = false } = {}) => {
+    const existing = await getStaticJson(name);
+
+    if (existing && !force) {
+      staticDataRef.current = {
+        ...staticDataRef.current,
+        [name]: existing,
+      };
+      return existing;
+    }
+
+    const result = await fetchApiJson(`/api/static-data?name=${name}`);
+    await setStaticJson(name, result.data);
+    staticDataRef.current = {
+      ...staticDataRef.current,
+      [name]: result.data,
+    };
+    return result.data;
+  };
+
+  const refreshStaticBibleData = async () => {
+    try {
+      setStaticDataUpdating(true);
+      setStaticDataMessage('');
+      await ensureStaticJsonCached('plans', { force: true });
+      await ensureStaticJsonCached('combined', { force: true });
+      setStaticDataMessage('圣经数据已更新');
+
+      if (isSignedIn) {
+        await loadBootstrapData(false);
+      }
+    } catch (error) {
+      setStaticDataMessage(error.message || '更新圣经数据失败');
+    } finally {
+      setStaticDataUpdating(false);
+    }
+  };
+
   const preloadPlanDetails = async (planId) => {
     if (planDetailsCacheRef.current[planId]) {
       return planDetailsCacheRef.current[planId];
     }
 
     const result = await fetchApiJson(`/api/plans/${planId}`);
-    const detail = {
+    const staticData = await getStaticDataSnapshot();
+    const detail = hydratePlanDetail({
       plan: result.plan,
       verses: result.verses || [],
-    };
+    }, staticData, settings);
 
     planDetailsCacheRef.current[planId] = detail;
     await persistUserSnapshot({
@@ -628,12 +821,21 @@ function App() {
   };
 
   const applyBootstrapPayload = async (payload) => {
+    const staticData = await getStaticDataSnapshot();
     const nextPlans = (payload.plans || []).map((plan) => ({
       ...plan,
       selected_users: normalizeSelectedUsers(plan.selected_users),
     }));
-    const nextPlanDetails = payload.planDetails || {};
-    const nextMemorizationData = payload.memorizationData || { activeVerses: [], masteredVerses: [] };
+    const nextPlanDetails = Object.fromEntries(
+      Object.entries(payload.planDetails || {}).map(([planId, detail]) => [
+        planId,
+        hydratePlanDetail(detail, staticData, settings),
+      ]),
+    );
+    const nextMemorizationData = {
+      activeVerses: (payload.memorizationData?.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+      masteredVerses: (payload.memorizationData?.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+    };
 
     setPlans(nextPlans);
     planDetailsCacheRef.current = nextPlanDetails;
@@ -651,18 +853,13 @@ function App() {
     });
   };
 
-  const ensureStaticJsonCached = async (name) => {
-    const existing = await getStaticJson(name);
-    if (existing) return;
-
-    const result = await fetchApiJson(`/api/static-data?name=${name}`);
-    await setStaticJson(name, result.data);
-  };
-
   const loadBootstrapData = async (showLoader = true) => {
     if (!isSignedIn) return;
 
     try {
+      await ensureStaticJsonCached('plans');
+      await ensureStaticJsonCached('combined');
+
       if (showLoader) {
         setPlansLoading(true);
         setMemorizationLoading(true);
@@ -682,12 +879,14 @@ function App() {
           ...plan,
           selected_users: normalizeSelectedUsers(plan.selected_users),
         }));
+        const staticData = await getStaticDataSnapshot();
+        const nextMemorizationData = {
+          activeVerses: (memorizationResult.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+          masteredVerses: (memorizationResult.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+        };
 
         setPlans(nextPlans);
-        setMemorizationData({
-          activeVerses: memorizationResult.activeVerses || [],
-          masteredVerses: memorizationResult.masteredVerses || [],
-        });
+        setMemorizationData(nextMemorizationData);
 
         nextPlans.forEach((plan) => {
           void preloadPlanDetails(plan.id);
@@ -695,10 +894,7 @@ function App() {
 
         await persistUserSnapshot({
           plans: nextPlans,
-          memorizationData: {
-            activeVerses: memorizationResult.activeVerses || [],
-            masteredVerses: memorizationResult.masteredVerses || [],
-          },
+          memorizationData: nextMemorizationData,
         });
       } catch (fallbackError) {
         setPlansError(fallbackError.message || error.message);
@@ -813,6 +1009,31 @@ function App() {
     void ensureStaticJsonCached('plans').catch(() => {});
     void ensureStaticJsonCached('combined').catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (!isSignedIn || !staticDataRef.current.combined || !staticDataRef.current.plans) {
+      return;
+    }
+
+    const nextPlanDetails = Object.fromEntries(
+      Object.entries(planDetailsCacheRef.current || {}).map(([planId, detail]) => [
+        planId,
+        hydratePlanDetail(detail, staticDataRef.current, settings),
+      ]),
+    );
+    const nextMemorizationData = {
+      activeVerses: (memorizationData.activeVerses || []).map((item) => hydrateVerseRecord(item, staticDataRef.current, settings)),
+      masteredVerses: (memorizationData.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticDataRef.current, settings)),
+    };
+
+    planDetailsCacheRef.current = nextPlanDetails;
+    setMemorizationData(nextMemorizationData);
+
+    if (selectedPlanId && nextPlanDetails[selectedPlanId]) {
+      setSelectedPlan(nextPlanDetails[selectedPlanId].plan);
+      setSelectedPlanVerses(nextPlanDetails[selectedPlanId].verses || []);
+    }
+  }, [settings.chineseVersion, settings.englishVersion]);
 
   useEffect(() => {
     if (!isUserLoaded) return;
@@ -1061,13 +1282,40 @@ function App() {
     })();
   };
 
-  const addVerseToList = (verseId) => {
-    if (!currentVerses.includes(verseId)) {
-      setCurrentVerses([...currentVerses, verseId]);
+  const addVerseToList = async (verse) => {
+    if (!verse) return;
+
+    if (!isSignedIn) {
+      if (!currentVerses.includes(verse.id)) {
+        setCurrentVerses([...currentVerses, verse.id]);
+      }
+      setActiveTab('memorization');
+      setShowSearchResults(false);
+      setSearchQuery('');
+      return;
     }
-    setActiveTab('memorization');
-    setShowSearchResults(false);
-    setSearchQuery('');
+
+    try {
+      setSearchLoading(true);
+      const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
+      setMemorizationData(nextMemorizationData);
+      await persistUserSnapshot({ memorizationData: nextMemorizationData });
+      await queuePendingOperation({
+        type: 'addVerse',
+        payload: {
+          verseId: verse.id,
+        },
+      }, { immediate: true });
+      await loadBootstrapData();
+      setCurrentVerseIndex(0);
+      setActiveTab('memorization');
+      setShowSearchResults(false);
+      setSearchQuery('');
+    } catch (error) {
+      setMemorizationError(error.message);
+    } finally {
+      setSearchLoading(false);
+    }
   };
 
   const selectCollection = (collection) => {
@@ -1218,22 +1466,107 @@ function App() {
     <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-[#0d1117] text-gray-100' : 'bg-gray-50 text-gray-800'}`}>
       {/* Header */}
       <header className="sticky top-0 z-50 shadow-sm" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-        <div className="container mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <button onClick={toggleSidebar} className={`p-2 rounded-md ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
+        <div className="container mx-auto px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center space-x-2 min-w-0">
+              <button onClick={toggleSidebar} className={`p-2 rounded-md ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
                 <IconMenu />
               </button>
-            <button
-              onClick={() => setActiveTab('memorization')}
-              className="flex items-center space-x-2 hover:opacity-80 transition-opacity"
-            >
-              <div className="text-primary"><IconBook /></div>
-              <h1 className="text-xl font-bold" style={{ fontFamily: 'Rye, cursive' }}>Bible Bee</h1>
-            </button>
+              <button
+                onClick={() => setActiveTab('memorization')}
+                className="flex items-center space-x-2 hover:opacity-80 transition-opacity min-w-0"
+              >
+                <img
+                  src="/bblogolong.png"
+                  alt="Bible Bee Logo"
+                  className="h-8 md:h-10 object-contain"
+                />
+                <h1 className="text-xl font-bold" style={{ fontFamily: 'Rye, cursive' }}></h1>
+              </button>
+            </div>
+
+            <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
+              <div className="relative w-full">
+                <input
+                  type="text"
+                  placeholder="搜索我要背的经文，例如：福音"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                  className="w-full pl-10 pr-4 py-2 rounded-full border focus:outline-none focus:border-primary text-base"
+                  style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                />
+                <button
+                  onClick={handleSearch}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
+                >
+                  <IconSearch />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2 md:space-x-4 shrink-0">
+              <button
+                onClick={() => setActiveTab('leaderboard')}
+                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#30363d]"
+                style={{ color: darkMode ? '#facc15' : '#eab308' }}
+                title="排行榜"
+              >
+                <IconMedal />
+              </button>
+              <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
+                {darkMode ? <IconSun /> : <IconMoon />}
+              </button>
+              {isUserLoaded && isSignedIn ? (
+                <div className="relative" ref={accountMenuRef}>
+                  <button
+                    type="button"
+                    onClick={() => setAccountMenuOpen(prev => !prev)}
+                    className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary/15"
+                    style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}
+                  >
+                    {user?.imageUrl ? (
+                      <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-primary">
+                        <IconUser />
+                      </div>
+                    )}
+                  </button>
+                  {accountMenuOpen && (
+                    <div
+                      className="absolute right-0 mt-2 w-44 rounded-2xl shadow-xl border py-2 z-50"
+                      style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                    >
+                      <button
+                        type="button"
+                        onClick={handleOpenAccountPage}
+                        className={`w-full px-4 py-3 text-left text-sm ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
+                      >
+                        账号管理
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => signOut({ redirectUrl: '/' })}
+                        className={`w-full px-4 py-3 text-left text-sm text-red-500 ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
+                      >
+                        退出登录
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <button
+                  onClick={() => openSignIn()}
+                  className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
+                >
+                  登录
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* 搜索框 */}
-          <div className="hidden md:flex items-center flex-1 max-w-md mx-8">
+          <div className="mt-3 md:hidden">
             <div className="relative w-full">
               <input
                 type="text"
@@ -1241,7 +1574,7 @@ function App() {
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                className="w-full pl-10 pr-4 py-2 rounded-full border focus:outline-none focus:border-primary"
+                className="w-full pl-10 pr-4 py-2 rounded-full border focus:outline-none focus:border-primary text-sm"
                 style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
               />
               <button
@@ -1251,67 +1584,6 @@ function App() {
                 <IconSearch />
               </button>
             </div>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            {/* 排行榜按钮 */}
-            <button
-              onClick={() => setActiveTab('leaderboard')}
-              className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#30363d]"
-              style={{ color: darkMode ? '#facc15' : '#eab308' }}
-              title="排行榜"
-            >
-              <IconMedal />
-            </button>
-            <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
-              {darkMode ? <IconSun /> : <IconMoon />}
-            </button>
-            {isUserLoaded && isSignedIn ? (
-              <div className="relative" ref={accountMenuRef}>
-                <button
-                  type="button"
-                  onClick={() => setAccountMenuOpen(prev => !prev)}
-                  className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-primary/15"
-                  style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}
-                >
-                  {user?.imageUrl ? (
-                    <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-primary">
-                      <IconUser />
-                    </div>
-                  )}
-                </button>
-                {accountMenuOpen && (
-                  <div
-                    className="absolute right-0 mt-2 w-44 rounded-2xl shadow-xl border py-2 z-50"
-                    style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
-                  >
-                    <button
-                      type="button"
-                      onClick={handleOpenAccountPage}
-                      className={`w-full px-4 py-3 text-left text-sm ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
-                    >
-                      账号管理
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => signOut({ redirectUrl: '/' })}
-                      className={`w-full px-4 py-3 text-left text-sm text-red-500 ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
-                    >
-                      退出登录
-                    </button>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <button 
-                onClick={() => openSignIn()}
-                className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
-              >
-                登录
-              </button>
-            )}
           </div>
         </div>
       </header>
@@ -1571,19 +1843,23 @@ function App() {
                     <div key={verse.id} className="rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                       <div className="flex justify-between items-start mb-4">
                         <div>
-                          <h3 className="text-xl font-bold text-primary">{verse.referenceCN}</h3>
-                          <p className="text-sm text-gray-500 mt-1">{verse.reference}</p>
+                          <h3 className="text-xl font-bold text-primary">{renderHighlightedText(verse.referenceCN, searchQuery)}</h3>
+                          <p className="text-sm text-gray-500 mt-1">{renderHighlightedText(verse.reference, searchQuery)}</p>
                         </div>
                         <button
-                          onClick={() => addVerseToList(verse.id)}
+                          onClick={() => addVerseToList(verse)}
                           className="px-5 py-2 bg-primary text-white rounded-full text-sm hover:bg-blue-600 transition-colors"
                         >
                           加入我的背诵
                         </button>
                       </div>
                       <div className="space-y-3">
-                        <p className="text-lg leading-relaxed" style={{ color: darkMode ? '#ffffff' : '#1f2937' }}>{verse.chinese}</p>
-                        <p className="italic" style={{ color: darkMode ? '#9ca3af' : '#4b5563' }}>{verse.english}</p>
+                        <p className="text-lg leading-relaxed" style={{ color: darkMode ? '#ffffff' : '#1f2937' }}>
+                          {renderHighlightedText(verse.chinese, searchQuery)}
+                        </p>
+                        <p className="italic" style={{ color: darkMode ? '#9ca3af' : '#4b5563' }}>
+                          {renderHighlightedText(verse.english, searchQuery)}
+                        </p>
                       </div>
                       <div className="mt-3 pt-3 border-t" style={{ borderColor: darkMode ? '#30363d' : '#f3f4f6' }}>
                         <span className="text-xs text-gray-400">和合本</span>
@@ -1620,7 +1896,7 @@ function App() {
           )}
 
           {activeTab === 'plan' && (
-            <div className="space-y-6 max-w-2xl mx-auto pt-4 md:pt-6">
+            <div className="space-y-6 max-w-3xl mx-auto pt-4 md:pt-6">
               <div className="text-center mb-8">
                 <p className="text-gray-500 dark:text-gray-300">选择经文列表开始你的背诵之旅</p>
               </div>
@@ -1917,57 +2193,134 @@ function App() {
 
           {activeTab === 'progress' && (
             <div className="space-y-6 max-w-3xl mx-auto pt-4">
-              <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <p className="dark:text-white mb-2" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>
-                  <Show when="signed-in">{displayUsername}</Show>
-                  <Show when="signed-out">访客</Show>
-                  ，你已经背了
-                </p>
-                <p className="text-6xl font-bold text-primary mb-2">{totalMastered}</p>
-                <p className="dark:text-white" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>节经文</p>
-                <Show when="signed-out">
-                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-4">
-                    登录后可同步进度到云端
-                  </p>
-                </Show>
+              <div
+                className="overflow-hidden rounded-[2rem] shadow-xl"
+                style={{
+                  background: darkMode
+                    ? 'linear-gradient(135deg, #141922 0%, #1a2432 48%, #0e1620 100%)'
+                    : 'linear-gradient(135deg, #fefbf2 0%, #f6f2ff 42%, #eef7ff 100%)',
+                }}
+              >
+                <div className="px-6 py-7 md:px-8 md:py-8">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-4">
+                      <div
+                        className="h-14 w-14 md:h-16 md:w-16 rounded-3xl overflow-hidden ring-4 shrink-0"
+                        style={{
+                          backgroundColor: darkMode ? '#21262d' : '#ffffff',
+                          ringColor: darkMode ? 'rgba(59,130,246,0.2)' : 'rgba(59,130,246,0.15)',
+                        }}
+                      >
+                        {user?.imageUrl ? (
+                          <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center text-primary">
+                            <IconUser />
+                          </div>
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.26em] text-primary/80 mb-2">Progress</p>
+                        <h2 className="text-2xl md:text-4xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
+                          <Show when="signed-in">{displayUsername}</Show>
+                          <Show when="signed-out">访客模式</Show>
+                        </h2>
+                        <p className="mt-2 max-w-sm text-sm md:text-base text-gray-500 dark:text-gray-300">
+                          <Show when="signed-in">你已经建立了稳定的背诵节奏，继续保持。</Show>
+                          <Show when="signed-out">登录后可以同步你的背诵进度与个人数据。</Show>
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="pl-[4.5rem] md:pl-0 text-left md:text-right">
+                      <p className="text-sm text-gray-500 dark:text-gray-300">已掌握经文</p>
+                      <p className="text-4xl md:text-6xl font-bold text-primary leading-none mt-1 md:mt-2">{totalMastered}</p>
+                      <p className="mt-1 md:mt-2 text-sm text-gray-500 dark:text-gray-300">节经文</p>
+                    </div>
+                  </div>
+
+                  <div className="mt-6 flex justify-end">
+                    <span
+                      className="inline-flex items-center rounded-full px-3 py-1 text-xs italic"
+                      style={{
+                        backgroundColor: darkMode ? 'rgba(255,255,255,0.06)' : 'rgba(255,255,255,0.72)',
+                        color: darkMode ? '#9ca3af' : '#9ca3af',
+                        border: `1px solid ${darkMode ? '#30363d' : '#e5e7eb'}`,
+                      }}
+                    >
+                      <span>待背诵</span>
+                      <span className="mx-1 font-bold not-italic text-primary">{pendingVerses.length}</span>
+                      <span>节经文</span>
+                    </span>
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <div className="inline-flex rounded-xl p-1 mb-5" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
-                  <button
-                    type="button"
-                    onClick={() => setProgressView('mastered')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${progressView === 'mastered' ? 'bg-primary text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                  >
-                    已会背
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProgressView('pending')}
-                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${progressView === 'pending' ? 'bg-primary text-white' : 'text-gray-500 dark:text-gray-300'}`}
-                  >
-                    待背诵
-                  </button>
+              <div
+                className="rounded-[1.75rem] border px-6 py-6 md:px-8 shadow-sm"
+                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+              >
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Library</p>
+                    <h3 className="mt-2 text-2xl font-bold">我的经文库</h3>
+                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">复习已经掌握的经文，看看还有哪些经文等着背诵。</p>
+                  </div>
+                  <div className="inline-flex rounded-2xl p-1" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                    <button
+                      type="button"
+                      onClick={() => setProgressView('mastered')}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${progressView === 'mastered' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}
+                    >
+                      已会背
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setProgressView('pending')}
+                      className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${progressView === 'pending' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}
+                    >
+                      待背诵
+                    </button>
+                  </div>
                 </div>
 
                 {progressView === 'mastered' ? (
                   <>
                     {(isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length) === 0 ? (
-                      <p className="text-gray-500 text-center py-4">还没有会背的经文</p>
+                      <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                        还没有会背的经文
+                      </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {(isSignedIn ? memorizationData.masteredVerses : masteredVerses).map(mv => {
                           const verse = isSignedIn ? mv : allVerses.find(v => v.id === mv.id);
                           return (
-                            <div key={isSignedIn ? mv.userVerseId : mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                              <div>
-                                <p className="font-bold text-primary">{verse?.referenceCN}</p>
-                                <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse?.chinese}</p>
-                                <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
-                              </div>
-                              <div className="mt-3 text-right text-xs text-gray-500 dark:text-gray-300 leading-5">
-                                <p className="text-green-600 font-medium">已掌握</p>
-                                <p>{isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}</p>
+                            <div
+                              key={isSignedIn ? mv.userVerseId : mv.id}
+                              className="rounded-[1.5rem] border p-5"
+                              style={{ backgroundColor: darkMode ? '#21262d' : '#fbfdff', borderColor: darkMode ? '#30363d' : '#edf2f7' }}
+                            >
+                              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                                <div className="min-w-0">
+                                  <p className="font-bold text-primary text-lg">{verse?.referenceCN}</p>
+                                  <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{verse?.reference}</p>
+                                  <p className="text-sm mt-3 leading-7" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>{verse?.chinese}</p>
+                                  <p className="text-sm mt-2 italic leading-7" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
+                                </div>
+                                <div className="shrink-0 text-right">
+                                  <span
+                                    className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(22,163,74,0.22)' : '#dcfce7',
+                                      color: darkMode ? '#86efac' : '#15803d',
+                                    }}
+                                  >
+                                    已掌握
+                                  </span>
+                                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-300">
+                                    {isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}
+                                  </p>
+                                </div>
                               </div>
                             </div>
                           );
@@ -1978,14 +2331,41 @@ function App() {
                 ) : (
                   <>
                     {pendingVerses.length === 0 ? (
-                      <p className="text-gray-500 text-center py-4">没有待背诵的经文</p>
+                      <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                        没有待背诵的经文
+                      </div>
                     ) : (
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {pendingVerses.map(verse => (
-                          <div key={verse.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                            <p className="font-bold text-primary">{verse.referenceCN}</p>
-                            <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse.chinese}</p>
-                            <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse.english}</p>
+                          <div
+                            key={verse.id}
+                            className="rounded-[1.5rem] border p-5"
+                            style={{ backgroundColor: darkMode ? '#21262d' : '#fbfdff', borderColor: darkMode ? '#30363d' : '#edf2f7' }}
+                          >
+                            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                              <div className="min-w-0">
+                                <p className="font-bold text-primary text-lg">{verse.referenceCN}</p>
+                                <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{verse.reference}</p>
+                                <p className="text-sm mt-3 leading-7" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>{verse.chinese}</p>
+                                <p className="text-sm mt-2 italic leading-7" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse.english}</p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <span
+                                  className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                                  style={{
+                                    backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
+                                    color: darkMode ? '#93c5fd' : '#1d4ed8',
+                                  }}
+                                >
+                                  {verse.status === 'relearning' ? '重新学习' : '学习中'}
+                                </span>
+                                {verse.nextReviewDate && (
+                                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-300">
+                                    下次复习 {new Date(verse.nextReviewDate).toLocaleDateString('zh-CN')}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -2093,32 +2473,157 @@ function App() {
           )}
 
           {activeTab === 'settings' && (
-            <div className="space-y-6 max-w-2xl mx-auto">
-              <div className="rounded-xl shadow-sm p-6 space-y-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <div>
-                  <label className="block text-sm font-medium mb-2">中文版本</label>
-                  <select
-                    value={settings.chineseVersion}
-                    onChange={(e) => setSettings({ ...settings, chineseVersion: e.target.value })}
-                    className="w-full px-4 py-3 border rounded-xl"
-                    style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-                  >
-                    <option value="cuv">和合本</option>
-                  </select>
-                </div>
+            <div className="max-w-3xl mx-auto space-y-6">
+              <div
+                className="overflow-hidden rounded-[2rem] shadow-xl"
+                style={{
+                  background: darkMode
+                    ? 'linear-gradient(135deg, #161b22 0%, #1c2430 55%, #0f1720 100%)'
+                    : 'linear-gradient(135deg, #fffdf6 0%, #f7f2e7 46%, #eef5ff 100%)',
+                }}
+              >
+                <div className="px-6 py-7 md:px-8 md:py-8">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.28em] text-primary/80 mb-3">Settings</p>
+                      <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
+                        应用设置
+                      </h2>
+                      <p className="mt-3 max-w-xl text-sm md:text-base text-gray-500 dark:text-gray-300">
+                        当前使用的圣经版本
+                      </p>
+                    </div>
+                    <div className="hidden md:flex items-center justify-center text-3xl text-primary/80">
+                      ⚙️
+                    </div>
+                  </div>
 
-                <div>
-                  <label className="block text-sm font-medium mb-2">英文版本</label>
-                  <select
-                    value={settings.englishVersion}
-                    onChange={(e) => setSettings({ ...settings, englishVersion: e.target.value })}
-                    className="w-full px-4 py-3 border rounded-xl"
-                    style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-                  >
-                    <option value="esv">ESV</option>
-                    <option value="niv">NIV</option>
-                  </select>
+                  <div className="mt-6 grid gap-3 md:grid-cols-3">
+                    <div
+                      className="rounded-2xl border px-4 py-4"
+                      style={{ backgroundColor: darkMode ? 'rgba(22,27,34,0.72)' : 'rgba(255,255,255,0.7)', borderColor: darkMode ? '#30363d' : '#eadfca' }}
+                    >
+                      <p className="text-xs text-gray-500 dark:text-gray-400">中文版本</p>
+                      <p className="mt-2 text-lg font-semibold">{settings.chineseVersion === 'cuv' ? '和合本' : settings.chineseVersion.toUpperCase()}</p>
+                    </div>
+                    <div
+                      className="rounded-2xl border px-4 py-4"
+                      style={{ backgroundColor: darkMode ? 'rgba(22,27,34,0.72)' : 'rgba(255,255,255,0.7)', borderColor: darkMode ? '#30363d' : '#eadfca' }}
+                    >
+                      <p className="text-xs text-gray-500 dark:text-gray-400">英文版本</p>
+                      <p className="mt-2 text-lg font-semibold">{settings.englishVersion.toUpperCase()}</p>
+                    </div>
+                    <div
+                      className="rounded-2xl border px-4 py-4"
+                      style={{ backgroundColor: darkMode ? 'rgba(22,27,34,0.72)' : 'rgba(255,255,255,0.7)', borderColor: darkMode ? '#30363d' : '#eadfca' }}
+                    >
+                      <p className="text-xs text-gray-500 dark:text-gray-400">圣经数据</p>
+                      <p className="mt-2 text-lg font-semibold">{staticDataUpdating ? '更新中' : '本地优先'}</p>
+                    </div>
+                  </div>
                 </div>
+              </div>
+
+              <div className="grid gap-5 md:grid-cols-[1.15fr_0.85fr]">
+                <section
+                  className="rounded-[1.75rem] border p-6 shadow-sm"
+                  style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                >
+                  <div className="mb-5">
+                    <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Display</p>
+                    <h3 className="mt-2 text-2xl font-bold">修改版本</h3>
+                  </div>
+
+                  <div className="space-y-5">
+                    <div className="rounded-2xl p-4" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                      <label className="block text-sm font-medium mb-2">中文版本</label>
+                      <select
+                        value={settings.chineseVersion}
+                        onChange={(e) => setSettings({ ...settings, chineseVersion: e.target.value })}
+                        className="w-full px-4 py-3 border rounded-xl"
+                        style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                      >
+                        <option value="cuv">和合本</option>
+                      </select>
+                    </div>
+
+                    <div className="rounded-2xl p-4" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                      <label className="block text-sm font-medium mb-2">英文版本</label>
+                      <select
+                        value={settings.englishVersion}
+                        onChange={(e) => setSettings({ ...settings, englishVersion: e.target.value })}
+                        className="w-full px-4 py-3 border rounded-xl"
+                        style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                      >
+                        <option value="esv">ESV</option>
+                        <option value="niv">NIV</option>
+                      </select>
+                    </div>
+                  </div>
+                </section>
+
+                <section
+                  className="rounded-[1.75rem] border p-6 shadow-sm"
+                  style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                >
+                  <div className="mb-4">
+                    <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Offline Data</p>
+                    <h3 className="mt-2 text-2xl font-bold">圣经数据</h3>
+                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">圣经数据默认已经缓存本地，日常无需手动更新。</p>
+                  </div>
+
+                  <div
+                    className="mt-6 rounded-3xl p-4"
+                    style={{
+                      background: darkMode
+                        ? 'linear-gradient(160deg, #1b2430 0%, #131a23 100%)'
+                        : 'linear-gradient(160deg, #f9fbff 0%, #fef8ef 100%)',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">本地圣经数据</p>
+                        <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">适合离线阅读与经文检索</p>
+                      </div>
+                      <span
+                        className="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+                        style={{
+                          backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
+                          color: darkMode ? '#93c5fd' : '#1d4ed8',
+                        }}
+                      >
+                        {staticDataUpdating ? '同步中' : '本地缓存'}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 flex flex-col gap-3">
+                      <button
+                        type="button"
+                        onClick={refreshStaticBibleData}
+                        disabled={staticDataUpdating}
+                        className="w-full px-4 py-3 rounded-2xl bg-primary text-white hover:bg-blue-600 disabled:opacity-60 shadow-md"
+                      >
+                        {staticDataUpdating ? '正在下载并更新...' : '下载与更新本地圣经数据'}
+                      </button>
+
+                      {staticDataMessage && (
+                        <div
+                          className="rounded-2xl px-4 py-3 text-sm"
+                          style={{
+                            backgroundColor: staticDataMessage.includes('失败')
+                              ? (darkMode ? 'rgba(127,29,29,0.28)' : '#fef2f2')
+                              : (darkMode ? 'rgba(20,83,45,0.32)' : '#f0fdf4'),
+                            color: staticDataMessage.includes('失败')
+                              ? (darkMode ? '#fca5a5' : '#dc2626')
+                              : (darkMode ? '#86efac' : '#15803d'),
+                          }}
+                        >
+                          {staticDataMessage}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </section>
               </div>
             </div>
           )}

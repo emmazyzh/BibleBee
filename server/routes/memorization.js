@@ -1,6 +1,5 @@
 import { getSql } from '../lib/db.js'
 import { getCurrentDbUser } from '../lib/current-user.js'
-import { getVerseDetails } from '../lib/bible.js'
 import { ApiError, jsonError, readJsonRequest } from '../lib/http.js'
 
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
@@ -33,18 +32,16 @@ export function registerMemorizationRoutes(app) {
         ORDER BY created_at ASC
       `
 
-      const verses = await Promise.all(
-        rows.map(async (row) => ({
-          userVerseId: row.id,
-          status: row.status,
-          masteryDate: row.mastery_date,
-          reviewCount: row.review_count,
-          nextReviewDate: row.next_review_date,
-          modifiedAt: row.modified_at,
-          createdAt: row.created_at,
-          ...(await getVerseDetails(row.verse_id, c.env)),
-        })),
-      )
+      const verses = rows.map((row) => ({
+        userVerseId: row.id,
+        verseId: row.verse_id,
+        status: row.status,
+        masteryDate: row.mastery_date,
+        reviewCount: row.review_count,
+        nextReviewDate: row.next_review_date,
+        modifiedAt: row.modified_at,
+        createdAt: row.created_at,
+      }))
 
       return c.json({
         ok: true,

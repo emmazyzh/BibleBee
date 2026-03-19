@@ -1,6 +1,5 @@
 import { getSql } from '../lib/db.js'
 import { getCurrentDbUser } from '../lib/current-user.js'
-import { getVerseDetails } from '../lib/bible.js'
 import { jsonError } from '../lib/http.js'
 
 function normalizePlanRows(rows) {
@@ -74,14 +73,12 @@ export function registerBootstrapRoute(app) {
       const planDetails = {}
 
       for (const plan of plans) {
-        const verses = await Promise.all(
-          planVerseRows
-            .filter((item) => item.plan_id === plan.id)
-            .map(async (item) => ({
-              orderIndex: item.order_index,
-              ...(await getVerseDetails(item.verse_id, c.env)),
-            })),
-        )
+        const verses = planVerseRows
+          .filter((item) => item.plan_id === plan.id)
+          .map((item) => ({
+            verseId: item.verse_id,
+            orderIndex: item.order_index,
+          }))
 
         planDetails[plan.id] = {
           plan: {
@@ -95,18 +92,16 @@ export function registerBootstrapRoute(app) {
         }
       }
 
-      const allVerses = await Promise.all(
-        userVerseRows.map(async (row) => ({
-          userVerseId: row.id,
-          status: row.status,
-          masteryDate: row.mastery_date,
-          reviewCount: row.review_count,
-          nextReviewDate: row.next_review_date,
-          modifiedAt: row.modified_at,
-          createdAt: row.created_at,
-          ...(await getVerseDetails(row.verse_id, c.env)),
-        })),
-      )
+      const allVerses = userVerseRows.map((row) => ({
+        userVerseId: row.id,
+        verseId: row.verse_id,
+        status: row.status,
+        masteryDate: row.mastery_date,
+        reviewCount: row.review_count,
+        nextReviewDate: row.next_review_date,
+        modifiedAt: row.modified_at,
+        createdAt: row.created_at,
+      }))
 
       return c.json({
         ok: true,

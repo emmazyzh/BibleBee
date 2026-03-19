@@ -1,6 +1,5 @@
 import { getSql } from '../lib/db.js'
 import { getCurrentDbUser } from '../lib/current-user.js'
-import { getVerseDetails } from '../lib/bible.js'
 import { ApiError, jsonError, readJsonRequest } from '../lib/http.js'
 
 export function registerPlanRoutes(app) {
@@ -70,12 +69,10 @@ export function registerPlanRoutes(app) {
         ORDER BY order_index ASC
       `
 
-      const verses = await Promise.all(
-        planVerses.map(async (item) => ({
-          orderIndex: item.order_index,
-          ...(await getVerseDetails(item.verse_id, c.env)),
-        })),
-      )
+      const verses = planVerses.map((item) => ({
+        verseId: item.verse_id,
+        orderIndex: item.order_index,
+      }))
 
       return c.json({
         ok: true,
