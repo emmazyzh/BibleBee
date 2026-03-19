@@ -16,6 +16,8 @@ import { getVerseDetailsFromStaticData } from './lib/bible-data.js'
 const SYNC_DEBOUNCE_MS = 10 * 60 * 1000
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 const GUEST_VERSES_PER_GROUP = 3
+const TITLE_FONT_FAMILY = 'var(--font-title)'
+const LOGO_FONT_FAMILY = 'var(--font-logo)'
 
 // 所有可用经文数据
 const allVerses = [
@@ -141,9 +143,13 @@ function FirstLetterMode({ verse, darkMode }) {
     setRevealedWords(prev => new Set([...prev, index]));
   };
 
+  useEffect(() => {
+    setRevealedWords(new Set());
+  }, [verse?.id]);
+
   return (
     <div className="text-center">
-      <p className="text-2xl leading-relaxed" style={{ fontFamily: 'Playfair Display, serif' }}>
+      <p className="text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
@@ -254,7 +260,7 @@ function FillInMode({ verse, darkMode }) {
 
   return (
     <div className="text-center">
-      <p className="text-2xl leading-relaxed" style={{ fontFamily: 'Playfair Display, serif' }}>
+      <p className="text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {segments.map((segment, index) => {
           if (!segment.isBlank) {
             return <span key={`text-${index}`}>{segment.token}</span>;
@@ -445,6 +451,27 @@ function applyAddVerseMutation(memorizationData, verse) {
   });
 
   return { activeVerses, masteredVerses };
+}
+
+function moveActiveVerseToFront(memorizationData, verseId) {
+  if (!memorizationData || !verseId) {
+    return memorizationData;
+  }
+
+  const activeVerses = [...(memorizationData.activeVerses || [])];
+  const verseIndex = activeVerses.findIndex((item) => item.id === verseId || item.verseId === verseId);
+
+  if (verseIndex <= 0) {
+    return memorizationData;
+  }
+
+  const [targetVerse] = activeVerses.splice(verseIndex, 1);
+  activeVerses.unshift(targetVerse);
+
+  return {
+    ...memorizationData,
+    activeVerses,
+  };
 }
 
 function buildBibleSearchResults(combinedData, query) {
@@ -719,13 +746,21 @@ function App() {
       return existing;
     }
 
-    const result = await fetchApiJson(`/api/static-data?name=${name}`);
-    await setStaticJson(name, result.data);
+    const response = await fetch(`/data/${name}.json`, {
+      cache: force ? 'no-store' : 'default',
+    });
+
+    if (!response.ok) {
+      throw new Error(`下载 ${name}.json 失败`);
+    }
+
+    const data = await response.json();
+    await setStaticJson(name, data);
     staticDataRef.current = {
       ...staticDataRef.current,
-      [name]: result.data,
+      [name]: data,
     };
-    return result.data;
+    return data;
   };
 
   const refreshStaticBibleData = async () => {
@@ -1299,6 +1334,10 @@ function App() {
       setSearchLoading(true);
       const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
       setMemorizationData(nextMemorizationData);
+      setCurrentVerseIndex(0);
+      setActiveTab('memorization');
+      setShowSearchResults(false);
+      setSearchQuery('');
       await persistUserSnapshot({ memorizationData: nextMemorizationData });
       await queuePendingOperation({
         type: 'addVerse',
@@ -1306,11 +1345,15 @@ function App() {
           verseId: verse.id,
         },
       }, { immediate: true });
-      await loadBootstrapData();
+      await loadBootstrapData(false);
+      const reorderedMemorizationData = moveActiveVerseToFront(cacheSnapshotRef.current.memorizationData, verse.id);
+      setMemorizationData(reorderedMemorizationData);
+      await persistUserSnapshot({ memorizationData: reorderedMemorizationData });
+      cacheSnapshotRef.current = {
+        ...cacheSnapshotRef.current,
+        memorizationData: reorderedMemorizationData,
+      };
       setCurrentVerseIndex(0);
-      setActiveTab('memorization');
-      setShowSearchResults(false);
-      setSearchQuery('');
     } catch (error) {
       setMemorizationError(error.message);
     } finally {
@@ -1481,7 +1524,7 @@ function App() {
                   alt="Bible Bee Logo"
                   className="h-8 md:h-10 object-contain"
                 />
-                <h1 className="text-xl font-bold" style={{ fontFamily: 'Rye, cursive' }}></h1>
+                <h1 className="text-xl font-bold" style={{ fontFamily: LOGO_FONT_FAMILY }}></h1>
               </button>
             </div>
 
@@ -1740,10 +1783,10 @@ function App() {
                     </div>
 
                     <div className="text-center mb-4">
-                      <h2 className="text-3xl font-bold text-primary mb-1" style={{ fontFamily: 'Playfair Display, serif' }}>
+                      <h2 className="text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                         {currentVerse?.referenceCN}
                       </h2>
-                      <p className="text-sm text-gray-500" style={{ fontFamily: 'Playfair Display, serif' }}>
+                      <p className="text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                         {currentVerse?.reference}
                       </p>
                     </div>
@@ -1758,12 +1801,12 @@ function App() {
                       {viewMode === 'parallel' && (
                         <>
                           <div className="text-center">
-                            <p className="text-2xl leading-relaxed font-medium" style={{ fontFamily: 'Playfair Display, serif' }}>
+                            <p className="text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                               {currentVerse?.chinese}
                             </p>
                           </div>
                           <div className="text-center">
-                            <p className="text-xl leading-relaxed" style={{ fontFamily: 'Playfair Display, serif', color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                            <p className="text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
                               {currentVerse?.english}
                             </p>
                           </div>
@@ -1882,12 +1925,12 @@ function App() {
               <div className="w-full rounded-lg shadow-sm p-5 md:p-6 overflow-hidden" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                 <h3 className="font-medium mb-4">{currentVerse?.referenceCN} {currentVerse?.reference}</h3>
                 <div className="space-y-4">
-                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg leading-relaxed break-words flex flex-wrap gap-x-1.5 gap-y-2">
+                  <div style={{ fontFamily: TITLE_FONT_FAMILY }} className="text-lg leading-relaxed break-words flex flex-wrap gap-x-1.5 gap-y-2">
                     {currentVerse?.english.split(' ').map((word, i) => (
                       <span key={i} className="text-primary cursor-pointer hover:underline break-words">{word}</span>
                     ))}
                   </div>
-                  <div style={{ fontFamily: 'Playfair Display, serif' }} className="text-lg leading-relaxed break-words">
+                  <div style={{ fontFamily: TITLE_FONT_FAMILY }} className="text-lg leading-relaxed break-words">
                     {currentVerse?.chinese}
                   </div>
                 </div>
@@ -2221,7 +2264,7 @@ function App() {
                       </div>
                       <div>
                         <p className="text-xs uppercase tracking-[0.26em] text-primary/80 mb-2">Progress</p>
-                        <h2 className="text-2xl md:text-4xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
+                        <h2 className="text-2xl md:text-4xl font-bold leading-tight" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                           <Show when="signed-in">{displayUsername}</Show>
                           <Show when="signed-out">访客模式</Show>
                         </h2>
@@ -2486,7 +2529,7 @@ function App() {
                   <div className="flex items-start justify-between gap-4">
                     <div>
                       <p className="text-xs uppercase tracking-[0.28em] text-primary/80 mb-3">Settings</p>
-                      <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ fontFamily: 'Playfair Display, serif' }}>
+                      <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                         应用设置
                       </h2>
                       <p className="mt-3 max-w-xl text-sm md:text-base text-gray-500 dark:text-gray-300">

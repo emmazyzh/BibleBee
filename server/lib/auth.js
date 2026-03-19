@@ -10,16 +10,10 @@ export function getAuthorizedParties(bindings, request) {
 
   return Array.from(new Set([
     ...readEnvList('FRONTEND_ORIGINS', bindings).map(normalizeUrl),
-    normalizeUrl(readEnv('VITE_CLOUDFLARE_APP_URL', bindings)),
     normalizeUrl(readEnv('VITE_VERCEL_APP_URL', bindings)),
-    normalizeUrl(readEnv('VITE_PRIMARY_API_BASE_URL', bindings)),
-    normalizeUrl(readEnv('VITE_FALLBACK_API_BASE_URL', bindings)),
     requestOrigin,
-    'http://localhost:8787',
-    'http://localhost:8788',
     'http://localhost:3000',
     'http://localhost:3001',
-    'http://localhost:4010',
     'http://localhost:5173',
     'http://localhost:5174',
   ].filter(Boolean)))

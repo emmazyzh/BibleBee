@@ -1,6 +1,7 @@
-import { getSql } from '../lib/db.js'
-import { getCurrentDbUser } from '../lib/current-user.js'
-import { ApiError, jsonError, readJsonRequest } from '../lib/http.js'
+import { getSql } from '../server/lib/db.js'
+import { getCurrentDbUser } from '../server/lib/current-user.js'
+import { ApiError, readJsonRequest } from '../server/lib/http.js'
+import { sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
 
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 
@@ -184,8 +185,6 @@ async function applyAddVerseOperation(sql, user, payload) {
   `
 
   if (!existing) {
-    const id = crypto.randomUUID()
-
     await sql`
       INSERT INTO user_verse (
         id,
@@ -197,7 +196,7 @@ async function applyAddVerseOperation(sql, user, payload) {
         mastery_date
       )
       VALUES (
-        ${id},
+        ${crypto.randomUUID()},
         ${user.id},
         ${verseId},
         'learning',
@@ -228,45 +227,45 @@ async function applyAddVerseOperation(sql, user, payload) {
   return { ok: true, verseId, status: existing.status, ignored: true }
 }
 
-export function registerSyncRoute(app) {
-  app.post('/api/sync', async (c) => {
-    try {
-      const user = await getCurrentDbUser(c.req.raw, c.env)
-      const { operations = [] } = await readJsonRequest(c.req.raw)
+export default async function handler(req, res) {
+  try {
+    const bindings = getBindings()
+    const request = await toWebRequest(req)
+    const user = await getCurrentDbUser(request, bindings)
+    const { operations = [] } = await readJsonRequest(request)
 
-      if (!Array.isArray(operations) || operations.length === 0) {
-        return c.json({ ok: true, synced: 0 })
-      }
-
-      const sql = getSql(c.env)
-      const results = []
-
-      for (const operation of operations) {
-        if (operation?.type === 'review') {
-          results.push(await applyReviewOperation(sql, user, operation.payload))
-          continue
-        }
-
-        if (operation?.type === 'selectPlan') {
-          results.push(await applySelectPlanOperation(sql, user, operation.payload))
-          continue
-        }
-
-        if (operation?.type === 'addVerse') {
-          results.push(await applyAddVerseOperation(sql, user, operation.payload))
-          continue
-        }
-
-        throw new ApiError(400, `Unknown sync operation: ${operation?.type || 'unknown'}`)
-      }
-
-      return c.json({
-        ok: true,
-        synced: operations.length,
-        results,
-      })
-    } catch (error) {
-      return jsonError(c, error, 'Failed to sync data')
+    if (!Array.isArray(operations) || operations.length === 0) {
+      return sendJson(res, { ok: true, synced: 0 })
     }
-  })
+
+    const sql = getSql(bindings)
+    const results = []
+
+    for (const operation of operations) {
+      if (operation?.type === 'review') {
+        results.push(await applyReviewOperation(sql, user, operation.payload))
+        continue
+      }
+
+      if (operation?.type === 'selectPlan') {
+        results.push(await applySelectPlanOperation(sql, user, operation.payload))
+        continue
+      }
+
+      if (operation?.type === 'addVerse') {
+        results.push(await applyAddVerseOperation(sql, user, operation.payload))
+        continue
+      }
+
+      throw new ApiError(400, `Unknown sync operation: ${operation?.type || 'unknown'}`)
+    }
+
+    return sendJson(res, {
+      ok: true,
+      synced: operations.length,
+      results,
+    })
+  } catch (error) {
+    return sendError(res, error, 'Failed to sync data')
+  }
 }

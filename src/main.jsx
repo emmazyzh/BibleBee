@@ -178,7 +178,7 @@ const root = createRoot(document.getElementById('root'))
 if (!clerkPublishableKey) {
   root.render(
     <StrictMode>
-      <div style={{ padding: '24px', fontFamily: 'Inter, sans-serif', color: '#b91c1c' }}>
+      <div style={{ padding: '24px', fontFamily: 'var(--font-body)', color: '#b91c1c' }}>
         Missing <code>VITE_CLERK_PUBLISHABLE_KEY</code>. Check your local env file and restart the dev server.
       </div>
     </StrictMode>,

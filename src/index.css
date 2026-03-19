@@ -1,6 +1,16 @@
+@import 'misans/lib/Latin/MiSansLatin-Regular.min.css';
+@import 'misans/lib/Latin/MiSansLatin-Medium.min.css';
+@import 'misans/lib/Latin/MiSansLatin-Bold.min.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+:root {
+  --font-body: 'MiSans Latin', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-title: 'MiSans Latin', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --font-logo: 'MiSans Latin', 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+}
 
 @layer utilities {
   .text-shadow {
@@ -9,7 +19,5 @@
 }
 
 body {
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
 }
-
-
