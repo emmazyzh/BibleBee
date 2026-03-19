@@ -159,6 +159,28 @@ Cloudflare 配置文件：
 
 - `wrangler.toml`
 
+### GitHub Actions 自动部署
+
+项目已经内置 GitHub Actions 工作流：
+
+- `.github/workflows/cloudflare-worker-deploy.yml`
+
+默认行为：
+
+- push 到 `main` 时自动部署
+- 也支持手动触发 `workflow_dispatch`
+
+你需要在 GitHub 仓库 Secrets 中配置：
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+
+说明：
+
+- 这个 workflow 只负责构建和执行 `wrangler deploy`
+- Neon、Clerk、主备 API 等业务环境变量，仍然建议保留在 Cloudflare 后台配置
+- 不建议把数据库连接串和 Clerk 密钥直接写进 GitHub Actions workflow
+
 ## Vercel 部署
 
 在 Vercel 中将项目识别为 Vite 项目进行部署。
