@@ -32,6 +32,7 @@ async function fetchJson(url, options) {
 
 const SYNC_DEBOUNCE_MS = 10 * 60 * 1000
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
+const GUEST_VERSES_PER_GROUP = 3
 
 // 所有可用经文数据
 const allVerses = [
@@ -423,6 +424,45 @@ function applySelectPlanMutation(memorizationData, planVerses, clearCurrent, pla
   return { activeVerses, masteredVerses };
 }
 
+function buildBibleSearchResults(combinedData, query) {
+  const trimmedQuery = query.trim();
+  const normalizedQuery = trimmedQuery.toLowerCase();
+
+  if (!combinedData || !trimmedQuery) {
+    return [];
+  }
+
+  const results = [];
+
+  for (const [, book] of Object.entries(combinedData)) {
+    for (const [chapterKey, chapter] of Object.entries(book.chapters || {})) {
+      for (const [verseKey, verse] of Object.entries(chapter || {})) {
+        const reference = `${book.bookEn} ${chapterKey}:${verseKey}`;
+        const referenceCN = `${book.bookZh} ${chapterKey}:${verseKey}`;
+        const chinese = verse.cuv || '';
+        const english = verse.esv || verse.niv || '';
+
+        if (
+          chinese.includes(trimmedQuery) ||
+          english.toLowerCase().includes(normalizedQuery) ||
+          reference.toLowerCase().includes(normalizedQuery) ||
+          referenceCN.includes(trimmedQuery)
+        ) {
+          results.push({
+            id: `${book.bookEn}_${chapterKey}_${verseKey}`,
+            reference,
+            referenceCN,
+            chinese,
+            english,
+          });
+        }
+      }
+    }
+  }
+
+  return results.slice(0, 100);
+}
+
 function App() {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -438,11 +478,12 @@ function App() {
   const [showNextGroupModal, setShowNextGroupModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
 
   const [settings, setSettings] = useState({
     chineseVersion: 'cuv',
     englishVersion: 'esv',
-    versesPerGroup: 3
   });
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [usernameInput, setUsernameInput] = useState('');
@@ -468,6 +509,7 @@ function App() {
   const [memorizationLoading, setMemorizationLoading] = useState(false);
   const [memorizationError, setMemorizationError] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [progressView, setProgressView] = useState('mastered');
   const leaderboardPageSize = 10;
 
   const cardRef = useRef(null);
@@ -1009,10 +1051,26 @@ function App() {
   };
 
   const handleSearch = () => {
-    if (searchQuery.trim()) {
-      setShowSearchResults(true);
-      setActiveTab('search');
-    }
+    if (!searchQuery.trim()) return;
+
+    setShowSearchResults(true);
+    setActiveTab('search');
+    setSearchLoading(true);
+
+    void (async () => {
+      try {
+        let combinedData = await getStaticJson('combined');
+
+        if (!combinedData) {
+          await ensureStaticJsonCached('combined');
+          combinedData = await getStaticJson('combined');
+        }
+
+        setSearchResults(buildBibleSearchResults(combinedData, searchQuery));
+      } finally {
+        setSearchLoading(false);
+      }
+    })();
   };
 
   const addVerseToList = (verseId) => {
@@ -1025,7 +1083,7 @@ function App() {
   };
 
   const selectCollection = (collection) => {
-    setCurrentVerses(collection.verses.slice(0, settings.versesPerGroup));
+    setCurrentVerses(collection.verses.slice(0, GUEST_VERSES_PER_GROUP));
     setMasteredVerses([]);
     setSkippedVerses([]);
     setCurrentVerseIndex(0);
@@ -1035,7 +1093,7 @@ function App() {
   const startNextGroup = () => {
     const remainingIds = allVerses
       .filter(v => !masteredVerses.some(mv => mv.id === v.id))
-      .slice(0, settings.versesPerGroup)
+      .slice(0, GUEST_VERSES_PER_GROUP)
       .map(v => v.id);
 
     if (remainingIds.length > 0) {
@@ -1146,15 +1204,6 @@ function App() {
     setClearCurrentPlanSelection(false);
     setShowSelectPlanModal(true);
   };
-
-  const searchResults = searchQuery.trim()
-    ? allVerses.filter(v =>
-      v.chinese.includes(searchQuery) ||
-      v.english.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.reference.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      v.referenceCN.includes(searchQuery)
-    )
-    : [];
 
   // Leaderboard pagination
   const totalLeaderboardPages = Math.ceil(leaderboardData.length / leaderboardPageSize);
@@ -1525,7 +1574,9 @@ function App() {
               </div>
 
               <div className="space-y-4 max-w-3xl mx-auto">
-                {searchResults.length === 0 ? (
+                {searchLoading ? (
+                  <p className="text-gray-500 text-center py-10">正在搜索经文...</p>
+                ) : searchResults.length === 0 ? (
                   <p className="text-gray-500 text-center py-10">未找到匹配的经文</p>
                 ) : (
                   searchResults.map(verse => (
@@ -1894,51 +1945,64 @@ function App() {
               </div>
 
               <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <h3 className="text-lg font-bold mb-4 flex items-center">
-                  <span className="w-2 h-2 bg-green-500 rounded-full mr-2"></span>
-                  已会背
-                </h3>
-                {(isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length) === 0 ? (
-                  <p className="text-gray-500 text-center py-4">还没有会背的经文</p>
-                ) : (
-                  <div className="space-y-3">
-                    {(isSignedIn ? memorizationData.masteredVerses : masteredVerses).map(mv => {
-                      const verse = isSignedIn ? mv : allVerses.find(v => v.id === mv.id);
-                      return (
-                        <div key={isSignedIn ? mv.userVerseId : mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                          <div>
-                            <p className="font-bold text-primary">{verse?.referenceCN}</p>
-                            <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse?.chinese}</p>
-                            <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
-                          </div>
-                          <div className="mt-3 text-right text-xs text-gray-500 dark:text-gray-300 leading-5">
-                            <p className="text-green-600 font-medium">已掌握</p>
-                            <p>{isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}</p>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
+                <div className="inline-flex rounded-xl p-1 mb-5" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                  <button
+                    type="button"
+                    onClick={() => setProgressView('mastered')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${progressView === 'mastered' ? 'bg-primary text-white' : 'text-gray-500 dark:text-gray-300'}`}
+                  >
+                    已会背
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProgressView('pending')}
+                    className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${progressView === 'pending' ? 'bg-primary text-white' : 'text-gray-500 dark:text-gray-300'}`}
+                  >
+                    待背诵
+                  </button>
+                </div>
 
-              <div className="rounded-xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <h3 className="text-lg font-bold mb-4 flex items-center">
-                  <span className="w-2 h-2 bg-orange-400 rounded-full mr-2"></span>
-                  待背诵
-                </h3>
-                {pendingVerses.length === 0 ? (
-                  <p className="text-gray-500 text-center py-4">没有待背诵的经文</p>
-                ) : (
-                  <div className="space-y-3">
-                    {pendingVerses.map(verse => (
-                      <div key={verse.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
-                        <p className="font-bold text-primary">{verse.referenceCN}</p>
-                        <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse.chinese}</p>
-                        <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse.english}</p>
+                {progressView === 'mastered' ? (
+                  <>
+                    {(isSignedIn ? memorizationData.masteredVerses.length : masteredVerses.length) === 0 ? (
+                      <p className="text-gray-500 text-center py-4">还没有会背的经文</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {(isSignedIn ? memorizationData.masteredVerses : masteredVerses).map(mv => {
+                          const verse = isSignedIn ? mv : allVerses.find(v => v.id === mv.id);
+                          return (
+                            <div key={isSignedIn ? mv.userVerseId : mv.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
+                              <div>
+                                <p className="font-bold text-primary">{verse?.referenceCN}</p>
+                                <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse?.chinese}</p>
+                                <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
+                              </div>
+                              <div className="mt-3 text-right text-xs text-gray-500 dark:text-gray-300 leading-5">
+                                <p className="text-green-600 font-medium">已掌握</p>
+                                <p>{isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}</p>
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
-                    ))}
-                  </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {pendingVerses.length === 0 ? (
+                      <p className="text-gray-500 text-center py-4">没有待背诵的经文</p>
+                    ) : (
+                      <div className="space-y-3">
+                        {pendingVerses.map(verse => (
+                          <div key={verse.id} className="p-4 rounded-xl" style={{ backgroundColor: darkMode ? '#21262d' : '#f9fafb' }}>
+                            <p className="font-bold text-primary">{verse.referenceCN}</p>
+                            <p className="text-sm mt-1" style={{ color: darkMode ? '#ffffff' : '#6b7280' }}>{verse.chinese}</p>
+                            <p className="text-sm mt-1 italic" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse.english}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
@@ -2065,22 +2129,6 @@ function App() {
                   >
                     <option value="esv">ESV</option>
                     <option value="niv">NIV</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-sm font-medium mb-2">每组背诵经文个数</label>
-                  <select
-                    value={settings.versesPerGroup}
-                    onChange={(e) => setSettings({ ...settings, versesPerGroup: parseInt(e.target.value) })}
-                    className="w-full px-4 py-3 border rounded-xl"
-                    style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
-                  >
-                    <option value={1}>1</option>
-                    <option value={2}>2</option>
-                    <option value={3}>3</option>
-                    <option value={5}>5</option>
-                    <option value={7}>7</option>
                   </select>
                 </div>
               </div>
