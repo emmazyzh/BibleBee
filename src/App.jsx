@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Show, useClerk, useUser } from '@clerk/react'
+import { Show, useAuth, useClerk, useUser } from '@clerk/react'
 import './App.css'
 import {
   addPendingOperation,
@@ -10,25 +10,7 @@ import {
   setStaticJson,
   setUserCache,
 } from './lib/indexed-db.js'
-
-async function fetchJson(url, options) {
-  const response = await fetch(url, {
-    credentials: 'include',
-    headers: {
-      'Content-Type': 'application/json',
-      ...(options?.headers || {}),
-    },
-    ...options,
-  })
-
-  const payload = await response.json().catch(() => ({}))
-
-  if (!response.ok) {
-    throw new Error(payload.error || '请求失败，请稍后重试')
-  }
-
-  return payload
-}
+import { fetchApiJson, setApiTokenProvider } from './lib/api-client.js'
 
 const SYNC_DEBOUNCE_MS = 10 * 60 * 1000
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
@@ -520,7 +502,22 @@ function App() {
   const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
   const syncTimeoutRef = useRef(null);
   const { signOut, openSignIn, openSignUp } = useClerk();
+  const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
+
+  useEffect(() => {
+    setApiTokenProvider(async () => {
+      try {
+        return await getToken()
+      } catch {
+        return null
+      }
+    })
+
+    return () => {
+      setApiTokenProvider(null)
+    }
+  }, [getToken]);
 
   const normalizeSelectedUsers = (selectedUsers) => {
     const rawUsers = Array.isArray(selectedUsers)
@@ -562,7 +559,7 @@ function App() {
       return planDetailsCacheRef.current[planId];
     }
 
-    const result = await fetchJson(`/api/plans/${planId}`);
+    const result = await fetchApiJson(`/api/plans/${planId}`);
     const detail = {
       plan: result.plan,
       verses: result.verses || [],
@@ -658,7 +655,7 @@ function App() {
     const existing = await getStaticJson(name);
     if (existing) return;
 
-    const result = await fetchJson(`/api/static-data?name=${name}`);
+    const result = await fetchApiJson(`/api/static-data?name=${name}`);
     await setStaticJson(name, result.data);
   };
 
@@ -672,13 +669,13 @@ function App() {
       }
       setPlansError('');
       setMemorizationError('');
-      const result = await fetchJson('/api/bootstrap');
+      const result = await fetchApiJson('/api/bootstrap');
       await applyBootstrapPayload(result);
     } catch (error) {
       try {
         const [plansResult, memorizationResult] = await Promise.all([
-          fetchJson('/api/plans'),
-          fetchJson('/api/memorization'),
+          fetchApiJson('/api/plans'),
+          fetchApiJson('/api/memorization'),
         ]);
 
         const nextPlans = (plansResult.plans || []).map((plan) => ({
@@ -723,22 +720,13 @@ function App() {
       return false;
     }
 
-    const response = await fetch('/api/sync', {
+    await fetchApiJson('/api/sync', {
       method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
       body: JSON.stringify({
         operations: pendingRecords.map((record) => record.operation),
       }),
       keepalive,
     });
-
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.error || '同步失败，请稍后重试');
-    }
 
     await clearPendingOperations(pendingRecords.map((record) => record.id));
     return true;

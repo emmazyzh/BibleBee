@@ -1,7 +1,6 @@
-import { randomUUID } from 'node:crypto'
-import { getSql } from '../lib/neon.js'
+import { getSql } from '../lib/db.js'
 import { getCurrentDbUser } from '../lib/current-user.js'
-import { ApiError, readJsonBody } from '../lib/api.js'
+import { ApiError, jsonError, readJsonRequest } from '../lib/http.js'
 
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 
@@ -90,7 +89,7 @@ async function applySelectPlanOperation(sql, user, payload) {
 
   await sql`
     INSERT INTO user_plan (id, user_id, plan_id)
-    VALUES (${randomUUID()}, ${user.id}, ${planId})
+    VALUES (${crypto.randomUUID()}, ${user.id}, ${planId})
     ON CONFLICT (user_id, plan_id) DO NOTHING
   `
 
@@ -140,7 +139,7 @@ async function applySelectPlanOperation(sql, user, payload) {
           mastery_date
         )
         VALUES (
-          ${randomUUID()},
+          ${crypto.randomUUID()},
           ${user.id},
           ${verse.verse_id},
           'learning',
@@ -169,44 +168,40 @@ async function applySelectPlanOperation(sql, user, payload) {
   return { ok: true, planId, planName: plan.plan_name, verseCount: planVerses.length }
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.setHeader('Allow', 'POST')
-    return res.status(405).json({ ok: false, error: 'Method not allowed' })
-  }
+export function registerSyncRoute(app) {
+  app.post('/api/sync', async (c) => {
+    try {
+      const user = await getCurrentDbUser(c.req.raw, c.env)
+      const { operations = [] } = await readJsonRequest(c.req.raw)
 
-  try {
-    const user = await getCurrentDbUser(req)
-    const { operations = [] } = await readJsonBody(req)
-
-    if (!Array.isArray(operations) || operations.length === 0) {
-      return res.status(200).json({ ok: true, synced: 0 })
-    }
-
-    const sql = getSql()
-    const results = []
-
-    for (const operation of operations) {
-      if (operation?.type === 'review') {
-        results.push(await applyReviewOperation(sql, user, operation.payload))
-        continue
+      if (!Array.isArray(operations) || operations.length === 0) {
+        return c.json({ ok: true, synced: 0 })
       }
 
-      if (operation?.type === 'selectPlan') {
-        results.push(await applySelectPlanOperation(sql, user, operation.payload))
-        continue
+      const sql = getSql(c.env)
+      const results = []
+
+      for (const operation of operations) {
+        if (operation?.type === 'review') {
+          results.push(await applyReviewOperation(sql, user, operation.payload))
+          continue
+        }
+
+        if (operation?.type === 'selectPlan') {
+          results.push(await applySelectPlanOperation(sql, user, operation.payload))
+          continue
+        }
+
+        throw new ApiError(400, `Unknown sync operation: ${operation?.type || 'unknown'}`)
       }
 
-      throw new ApiError(400, `Unknown sync operation: ${operation?.type || 'unknown'}`)
+      return c.json({
+        ok: true,
+        synced: operations.length,
+        results,
+      })
+    } catch (error) {
+      return jsonError(c, error, 'Failed to sync data')
     }
-
-    return res.status(200).json({
-      ok: true,
-      synced: operations.length,
-      results,
-    })
-  } catch (error) {
-    const statusCode = error instanceof ApiError ? error.statusCode : 500
-    return res.status(statusCode).json({ ok: false, error: error.message || 'Failed to sync data' })
-  }
+  })
 }
