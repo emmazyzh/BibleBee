@@ -26,9 +26,11 @@ export function getAuthorizedParties(bindings, request) {
 }
 
 export function getClerkClient(bindings) {
+  const publishableKey = readEnv('VITE_CLERK_PUBLISHABLE_KEY', bindings)
+
   return createClerkClient({
     secretKey: requireEnv('CLERK_SECRET_KEY', bindings),
-    publishableKey: requireEnv('VITE_CLERK_PUBLISHABLE_KEY', bindings),
+    ...(publishableKey ? { publishableKey } : {}),
   })
 }
 
