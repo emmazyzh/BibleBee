@@ -185,13 +185,13 @@ function FirstLetterMode({ verse, darkMode }) {
 
   return (
     <div className="text-center">
-      <p className="text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className="text-base md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
             <span
               key={index}
-              className="inline-block mr-3 mb-2 cursor-pointer hover:opacity-80"
+              className="inline-block mr-2 md:mr-3 mb-1 md:mb-2 cursor-pointer hover:opacity-80"
               onClick={() => handleWordClick(index)}
             >
               {isRevealed ? (
@@ -206,7 +206,7 @@ function FirstLetterMode({ verse, darkMode }) {
           );
         })}
       </p>
-      <p className="text-sm text-gray-400 mt-8">点击任意空格显示完整单词</p>
+      <p className="text-xs md:text-sm text-gray-400 mt-8">点击空格显示完整单词</p>
     </div>
   );
 }
@@ -296,7 +296,7 @@ function FillInMode({ verse, darkMode }) {
 
   return (
     <div className="text-center">
-      <p className="text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className="text-lg md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {segments.map((segment, index) => {
           if (!segment.isBlank) {
             return <span key={`text-${index}`}>{segment.token}</span>;
@@ -321,10 +321,10 @@ function FillInMode({ verse, darkMode }) {
           );
         })}
       </p>
-      <p className="text-base leading-relaxed mt-6 text-gray-500 dark:text-gray-300 italic">
+      <p className="hidden md:block text-sm md:text-base leading-relaxed mt-4 md:mt-6 text-gray-500 dark:text-gray-300 italic">
         {verse.english}
       </p>
-      <p className="text-sm text-gray-400 mt-6">点击空格查看关键词</p>
+      <p className="text-xs md:text-sm text-gray-400 mt-6">点击空格查看关键词</p>
     </div>
   );
 }
@@ -532,9 +532,7 @@ function buildBibleSearchResults(combinedData, query, versions = { chineseVersio
 
         if (
           chinese.includes(trimmedQuery) ||
-          english.toLowerCase().includes(normalizedQuery) ||
-          reference.toLowerCase().includes(normalizedQuery) ||
-          referenceCN.includes(trimmedQuery)
+          english.toLowerCase().includes(normalizedQuery)
         ) {
           results.push({
             id: `${book.bookEn}_${chapterKey}_${verseKey}`,
@@ -548,7 +546,7 @@ function buildBibleSearchResults(combinedData, query, versions = { chineseVersio
     }
   }
 
-  return results.slice(0, 100);
+  return results.slice(0, 200);
 }
 
 function getSearchTokens(query) {
@@ -647,6 +645,7 @@ function App() {
   const [activeTab, setActiveTab] = useState('memorization');
   const [currentVerseIndex, setCurrentVerseIndex] = useState(0);
   const [viewMode, setViewMode] = useState('parallel');
+  const [mobileParallelLanguage, setMobileParallelLanguage] = useState('chinese');
   const [masteredVerses, setMasteredVerses] = useState([
     { id: 1, date: '2024-03-10', reviewCount: 3 },
     { id: 2, date: '2024-03-11', reviewCount: 2 }
@@ -697,6 +696,7 @@ function App() {
   const [memorizationError, setMemorizationError] = useState('');
   const [manualSyncing, setManualSyncing] = useState(false);
   const [syncOverlay, setSyncOverlay] = useState({ visible: false, text: '' });
+  const [dataDownloadOverlay, setDataDownloadOverlay] = useState({ visible: false, text: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [progressView, setProgressView] = useState('mastered');
   const [isMobileLayout, setIsMobileLayout] = useState(() =>
@@ -767,7 +767,7 @@ function App() {
     return dedupedUsers;
   };
 
-  const getStaticDataSnapshot = async () => {
+  const getStaticDataSnapshot = async ({ requirePlans = false, requireCombined = false } = {}) => {
     let combined = staticDataRef.current.combined;
     let plansData = staticDataRef.current.plans;
 
@@ -779,8 +779,12 @@ function App() {
       plansData = await getStaticJson('plans');
     }
 
-    if (!combined || !plansData) {
-      throw new Error('本地圣经数据尚未下载完成');
+    if (requirePlans && !plansData) {
+      throw new Error('本地 plans 数据尚未下载完成');
+    }
+
+    if (requireCombined && !combined) {
+      throw new Error('本地 combined 数据尚未下载完成');
     }
 
     staticDataRef.current = { combined, plans: plansData };
@@ -839,7 +843,7 @@ function App() {
     }
 
     const result = await fetchApiJson(`/api/plans/${planId}`);
-    const staticData = await getStaticDataSnapshot();
+    const staticData = await getStaticDataSnapshot({ requirePlans: true });
     const detail = hydratePlanDetail({
       plan: result.plan,
       verses: result.verses || [],
@@ -910,7 +914,7 @@ function App() {
   const applyBootstrapPayload = async (payload) => {
     const nextSettings = resolveVersionSettings(payload?.user || {});
     setSettings(nextSettings);
-    const staticData = await getStaticDataSnapshot();
+    const staticData = await getStaticDataSnapshot({ requirePlans: true });
     const nextPlans = (payload.plans || []).map((plan) => ({
       ...plan,
       selected_users: normalizeSelectedUsers(plan.selected_users),
@@ -946,8 +950,9 @@ function App() {
     if (!isSignedIn) return;
 
     try {
-      await ensureStaticJsonCached('plans');
-      await ensureStaticJsonCached('combined');
+      const plansCacheTask = ensureStaticJsonCached('plans');
+      void ensureStaticJsonCached('combined').catch(() => {});
+      await plansCacheTask;
 
       if (showLoader) {
         setPlansLoading(true);
@@ -968,7 +973,7 @@ function App() {
           ...plan,
           selected_users: normalizeSelectedUsers(plan.selected_users),
         }));
-        const staticData = await getStaticDataSnapshot();
+        const staticData = await getStaticDataSnapshot({ requirePlans: true });
         const nextMemorizationData = {
           activeVerses: (memorizationResult.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
           masteredVerses: (memorizationResult.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
@@ -1105,7 +1110,7 @@ function App() {
     setMemorizationError('');
 
     try {
-      const staticData = await getStaticDataSnapshot();
+      const staticData = await getStaticDataSnapshot({ requirePlans: true });
       const pendingRecords = await getPendingOperations(user.id);
 
       if (pendingRecords.length > 0) {
@@ -1224,7 +1229,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!isSignedIn || !staticDataRef.current.combined || !staticDataRef.current.plans) {
+    if (!isSignedIn || !staticDataRef.current.plans) {
       return;
     }
 
@@ -1347,6 +1352,30 @@ function App() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (!isMobileLayout || activeTab !== 'memorization') {
+      return;
+    }
+
+    const previousBodyOverflow = document.body.style.overflow;
+    const previousRootOverflow = document.documentElement.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+
+    return () => {
+      document.body.style.overflow = previousBodyOverflow;
+      document.documentElement.style.overflow = previousRootOverflow;
+    };
+  }, [isMobileLayout, activeTab]);
+
+  useEffect(() => {
+    if (!isMobileLayout || viewMode !== 'parallel') {
+      return;
+    }
+
+    setMobileParallelLanguage('chinese');
+  }, [isMobileLayout, viewMode, currentVerseIndex]);
 
   const handleOpenAvatarPicker = () => {
     avatarInputRef.current?.click();
@@ -1548,6 +1577,14 @@ function App() {
     }
   };
 
+  const handleMobileParallelToggle = () => {
+    if (!isMobileLayout || viewMode !== 'parallel') {
+      return;
+    }
+
+    setMobileParallelLanguage((prev) => (prev === 'chinese' ? 'english' : 'chinese'));
+  };
+
   const handleMastered = () => {
     if (!currentVerse) return;
 
@@ -1615,12 +1652,14 @@ function App() {
         let combinedData = await getStaticJson('combined');
 
         if (!combinedData) {
+          setDataDownloadOverlay({ visible: true, text: '圣经数据下载中' });
           await ensureStaticJsonCached('combined');
           combinedData = await getStaticJson('combined');
         }
 
         setSearchResults(buildBibleSearchResults(combinedData, normalizedQuery, settings));
       } finally {
+        setDataDownloadOverlay({ visible: false, text: '' });
         setSearchLoading(false);
       }
     })();
@@ -2138,6 +2177,21 @@ function App() {
 
         {/* Main Content */}
         <main className={`flex-1 ${isMobileLayout && activeTab === 'memorization' ? 'p-0' : 'p-2 md:p-4'}`}>
+          {dataDownloadOverlay.visible && (
+            <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-6">
+              <div
+                className="w-full max-w-md rounded-3xl px-10 py-9 text-center text-xl font-semibold shadow-2xl"
+                style={{
+                  backgroundColor: 'rgba(10,10,10,0.75)',
+                  color: '#f8fafc',
+                  border: '1px solid rgba(148,163,184,0.32)',
+                }}
+              >
+                {dataDownloadOverlay.text}
+              </div>
+            </div>
+          )}
+
           {activeTab !== 'memorization' && (
             <div className="hidden md:flex max-w-3xl mx-auto mb-4 items-center justify-between px-1 py-1">
               <button
@@ -2173,8 +2227,12 @@ function App() {
                   ref={cardRef}
                   onTouchStart={handleTouchStart}
                   onTouchEnd={handleTouchEnd}
-                  className="flex-1 rounded-none md:rounded-2xl shadow-none md:shadow-lg p-4 md:p-6 flex flex-col relative"
-                  style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+                  className="flex-1 rounded-none md:rounded-2xl shadow-none md:shadow-lg p-4 md:p-6 flex flex-col relative overflow-hidden"
+                  style={{
+                    backgroundColor: darkMode ? '#161b22' : '#ffffff',
+                    touchAction: isMobileLayout ? 'none' : 'auto',
+                    overscrollBehavior: isMobileLayout ? 'none' : 'auto',
+                  }}
                 >
                 {isSignedIn && (
                   <button
@@ -2261,23 +2319,47 @@ function App() {
                       <IconChevronRight />
                     </button>
 
-                    <div className="flex justify-center space-x-4 mb-6">
-                      {[
-                        { key: 'parallel', icon: IconParallel, label: '对照' },
-                        { key: 'fill-in', icon: IconFillIn, label: '挖空' },
-                        { key: 'first-letter', icon: IconFirstLetter, label: '首字母' }
-                      ].map(mode => (
-                        <button
-                          key={mode.key}
-                          onClick={() => setViewMode(mode.key)}
-                          className={`flex flex-col items-center p-3 rounded-xl transition-all ${viewMode === mode.key ? 'bg-primary text-white' : darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
-                          style={{ color: viewMode === mode.key ? '' : (darkMode ? '#d1d5db' : '#374151') }}
-                        >
-                          <mode.icon />
-                          <span className="text-xs mt-1">{mode.label}</span>
-                        </button>
-                      ))}
-                    </div>
+                    {isMobileLayout ? (
+                      <div className="flex justify-center items-center gap-2 mb-6">
+                        {[
+                          { key: 'parallel', label: '对照' },
+                          { key: 'fill-in', label: '挖空' },
+                          { key: 'first-letter', label: '首字' },
+                        ].map((mode) => (
+                          <button
+                            key={mode.key}
+                            onClick={() => setViewMode(mode.key)}
+                            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                              viewMode === mode.key
+                                ? 'bg-primary text-white'
+                                : darkMode
+                                  ? 'text-gray-200 bg-[#21262d] border border-[#30363d] hover:bg-[#30363d]'
+                                  : 'text-gray-700 bg-white border border-gray-300 hover:bg-gray-100 shadow-sm'
+                            }`}
+                          >
+                            {mode.label}
+                          </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex justify-center space-x-4 mb-6">
+                        {[
+                          { key: 'parallel', icon: IconParallel, label: '对照' },
+                          { key: 'fill-in', icon: IconFillIn, label: '挖空' },
+                          { key: 'first-letter', icon: IconFirstLetter, label: '首字' }
+                        ].map(mode => (
+                          <button
+                            key={mode.key}
+                            onClick={() => setViewMode(mode.key)}
+                            className={`flex flex-col items-center p-3 rounded-xl transition-all ${viewMode === mode.key ? 'bg-primary text-white' : darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                            style={{ color: viewMode === mode.key ? '' : (darkMode ? '#d1d5db' : '#374151') }}
+                          >
+                            <mode.icon />
+                            <span className="text-xs mt-1">{mode.label}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="text-center mb-4">
                       <h2 className="text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
@@ -2289,24 +2371,45 @@ function App() {
                     </div>
 
                     <div className="text-center mb-4">
-                      <span className="inline-block px-4 py-1 rounded-full text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                      <span className="inline-block px-4 py-1 rounded-full text-xs md:text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
                         {currentVerseIndex + 1} / {currentVerseList.length}
                       </span>
                     </div>
 
-                    <div className="flex-1 flex flex-col justify-center space-y-6 overflow-y-auto px-6 md:px-20">
+                    <div className={`flex-1 flex flex-col justify-center space-y-6 px-6 md:px-20 ${isMobileLayout ? 'overflow-hidden' : 'overflow-y-auto'}`}>
                       {viewMode === 'parallel' && (
                         <>
-                          <div className="text-center">
-                            <p className="text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                              {currentVerse?.chinese}
-                            </p>
-                          </div>
-                          <div className="text-center">
-                            <p className="text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
-                              {currentVerse?.english}
-                            </p>
-                          </div>
+                          {isMobileLayout ? (
+                            <button
+                              type="button"
+                              onClick={handleMobileParallelToggle}
+                              className="text-center px-2 py-1"
+                            >
+                              {mobileParallelLanguage === 'chinese' ? (
+                                <p className="text-lg md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                                  {currentVerse?.chinese}
+                                </p>
+                              ) : (
+                                <p className="text-base md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                                  {currentVerse?.english}
+                                </p>
+                              )}
+                              <p className="mt-3 text-xs text-gray-400">点击切换中/英</p>
+                            </button>
+                          ) : (
+                            <>
+                              <div className="text-center">
+                                <p className="text-lg md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                                  {currentVerse?.chinese}
+                                </p>
+                              </div>
+                              <div className="text-center">
+                                <p className="text-base md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                                  {currentVerse?.english}
+                                </p>
+                              </div>
+                            </>
+                          )}
                         </>
                       )}
 
@@ -2319,6 +2422,7 @@ function App() {
                       )}
                     </div>
 
+                    {!isMobileLayout && (
                     <div className="text-center mt-4">
                       <button
                         onClick={() => setActiveTab('study')}
@@ -2327,6 +2431,7 @@ function App() {
                         深度研读
                       </button>
                     </div>
+                    )}
 
                     <div className="flex justify-center items-center space-x-6 mt-6">
                       <button
@@ -2414,8 +2519,8 @@ function App() {
                         <div key={verse.id} className="rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                           <div className="flex justify-between items-start mb-4">
                             <div>
-                              <h3 className="text-xl font-bold text-primary">{renderHighlightedText(verse.referenceCN, searchQuery)}</h3>
-                              <p className="text-sm text-gray-500 mt-1">{renderHighlightedText(verse.reference, searchQuery)}</p>
+                              <h3 className="text-xl font-bold text-primary">{verse.referenceCN}</h3>
+                              <p className="text-sm text-gray-500 mt-1">{verse.reference}</p>
                             </div>
                             <button
                               onClick={() => addVerseToList(verse)}
