@@ -1,7 +1,9 @@
 import { loadStaticJson } from '../server/lib/static-data.js'
-import { sendJson } from './_utils.js'
+import { handleCors, sendJson } from './_utils.js'
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return
+
   const { name } = req.query
 
   if (name === 'combined' || name === 'plans') {

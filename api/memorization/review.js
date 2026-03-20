@@ -1,7 +1,7 @@
 import { getSql } from '../../server/lib/db.js'
 import { getCurrentDbUser } from '../../server/lib/current-user.js'
 import { ApiError, readJsonRequest } from '../../server/lib/http.js'
-import { sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
 
 const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 
@@ -13,6 +13,8 @@ function getNextReviewDate(nextReviewCount) {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return
+
   try {
     const bindings = getBindings()
     const request = await toWebRequest(req)

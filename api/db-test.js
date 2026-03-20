@@ -1,7 +1,9 @@
 import { getSql } from '../server/lib/db.js'
-import { sendError, sendJson, getBindings } from './_utils.js'
+import { handleCors, sendError, sendJson, getBindings } from './_utils.js'
 
 export default async function handler(_req, res) {
+  if (handleCors(_req, res)) return
+
   try {
     const sql = getSql(getBindings())
     const [result] = await sql`SELECT NOW() AS now`

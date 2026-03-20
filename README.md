@@ -1,10 +1,14 @@
 # BibleBee
 
-BibleBee 是一个基于 React + Vite + Vercel Serverless Functions 的圣经背诵应用。  
-当前项目已经收敛为单平台部署：
+BibleBee 是一个基于 React + Vite 的圣经背诵应用。
 
-- 前端：Vite + React
-- 后端：Vercel `api/*.js`
+当前支持两种站点同时可用：
+
+- Vercel：前端 + 后端 API
+- Cloudflare Pages：仅静态前端，后端 API 调用 Vercel
+
+统一依赖：
+
 - 鉴权：Clerk
 - 数据库：Neon Postgres
 - 本地缓存：IndexedDB
@@ -35,14 +39,15 @@ Vercel API：
 
 静态圣经数据：
 
-- `/data/combined.json`
-- `/data/plans.json`
+- `/public/data/combined.json`
+- `/public/data/plans.json`
 
 ## 环境变量
 
 前端构建时需要：
 
 - `VITE_CLERK_PUBLISHABLE_KEY`
+- 可选：`VITE_API_BASE_URL`
 
 Vercel 运行时需要：
 
@@ -54,37 +59,58 @@ Vercel 运行时需要：
 说明：
 
 - `CLERK_PUBLISHABLE_KEY` 不配置时，服务端会回退读取 `VITE_CLERK_PUBLISHABLE_KEY`
-- `FRONTEND_ORIGINS` 建议至少包含你的正式域名
+- `FRONTEND_ORIGINS` 必须包含所有允许访问 Vercel API 的前端域名
+- 当 Cloudflare Pages 作为静态前端时，设置：
+  - `VITE_API_BASE_URL=https://你的-vercel-域名`
 
 ## 本地开发
 
-前端热更新：
+推荐本地联调方式：
 
 ```bash
+npm run dev:api
 npm run dev
-```
-
-Vercel 前后端联调：
-
-```bash
-npx vercel dev
 ```
 
 常用本地地址：
 
 - 前端：`http://localhost:5173`
-- Vercel 全栈：`http://localhost:3000`
+- 本地 API：`http://localhost:3001`
 
-如果要测试登录态、数据库、`/api/*`，优先使用 `npx vercel dev`。
+说明：
+
+- `5173` 的 `/api/*` 会自动代理到 `3001`
+- 如果要测试登录态、数据库、`/api/*`，保持这两个进程同时运行
 
 ## 部署
 
-推荐方式：
+### Vercel
 
 1. 将仓库连接到 Vercel
 2. Framework Preset 选择 `React (Vite)`
 3. 在 Vercel 项目中配置环境变量
 4. 重新部署
+
+### Cloudflare Pages
+
+1. 仅部署前端静态站点
+2. Build command:
+
+```bash
+npm run build
+```
+
+3. Output directory:
+
+```bash
+dist
+```
+
+4. Pages 环境变量至少配置：
+   - `VITE_CLERK_PUBLISHABLE_KEY`
+   - `VITE_API_BASE_URL=https://你的-vercel-域名`
+
+5. 同时在 Vercel 的 `FRONTEND_ORIGINS` 中加入你的 Pages 域名
 
 ## Clerk Webhook
 
@@ -122,10 +148,4 @@ Webhook secret 配置在 Vercel 环境变量：
 
 ```bash
 npm run build
-```
-
-当前构建会同时复制静态数据到 `dist/data`：
-
-```bash
-vite build
 ```

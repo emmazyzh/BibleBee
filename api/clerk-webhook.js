@@ -1,6 +1,6 @@
 import { verifyWebhook } from '@clerk/backend/webhooks'
 import { deleteClerkUser, ensureClerkUsersTable, upsertClerkUser } from '../server/lib/users.js'
-import { sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
 
 function getPrimaryEmail(data) {
   const emailAddresses = data.email_addresses || []
@@ -23,6 +23,8 @@ export const config = {
 }
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return
+
   try {
     const event = await verifyWebhook(await toWebRequest(req, { rawBody: true }))
     const bindings = getBindings()

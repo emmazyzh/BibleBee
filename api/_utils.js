@@ -1,4 +1,5 @@
 import { ApiError } from '../server/lib/http.js'
+import { readEnvList } from '../server/lib/env.js'
 
 function getHeaderValue(value) {
   if (Array.isArray(value)) {
@@ -80,4 +81,48 @@ export function sendError(res, error, fallbackMessage) {
 
 export function getBindings() {
   return process.env
+}
+
+function normalizeOrigin(value) {
+  return typeof value === 'string' && value.trim() ? value.trim().replace(/\/+$/, '') : ''
+}
+
+function getRequestOrigin(req) {
+  return normalizeOrigin(getHeaderValue(req.headers?.origin))
+}
+
+function getAllowedOrigins(bindings) {
+  return Array.from(new Set([
+    ...readEnvList('FRONTEND_ORIGINS', bindings).map(normalizeOrigin),
+    normalizeOrigin(bindings?.VITE_VERCEL_APP_URL),
+    normalizeOrigin(bindings?.VITE_API_BASE_URL),
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ].filter(Boolean)))
+}
+
+function applyCorsHeaders(req, res) {
+  const bindings = getBindings()
+  const requestOrigin = getRequestOrigin(req)
+  const allowedOrigins = getAllowedOrigins(bindings)
+
+  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+    res.setHeader('Vary', 'Origin')
+  }
+
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+}
+
+export function handleCors(req, res) {
+  applyCorsHeaders(req, res)
+
+  if ((req.method || 'GET').toUpperCase() === 'OPTIONS') {
+    res.status(204)
+    res.end()
+    return true
+  }
+
+  return false
 }

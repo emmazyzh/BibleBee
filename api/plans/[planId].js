@@ -1,9 +1,11 @@
 import { getSql } from '../../server/lib/db.js'
 import { ApiError } from '../../server/lib/http.js'
 import { getCurrentDbUser } from '../../server/lib/current-user.js'
-import { sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
 
 export default async function handler(req, res) {
+  if (handleCors(req, res)) return
+
   try {
     const bindings = getBindings()
     await getCurrentDbUser(await toWebRequest(req), bindings)
