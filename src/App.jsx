@@ -171,7 +171,7 @@ const IconSync = () => (
 );
 
 // 首字母模式组件
-function FirstLetterMode({ verse, darkMode }) {
+function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
   const words = verse.english.split(' ');
 
@@ -183,15 +183,18 @@ function FirstLetterMode({ verse, darkMode }) {
     setRevealedWords(new Set());
   }, [verse?.id]);
 
+  const textSizeClass = mobileFontLevel >= 2 ? 'text-sm' : mobileFontLevel === 1 ? 'text-base' : 'text-lg';
+  const wordSpacingClass = mobileFontLevel >= 1 ? 'mr-1 mb-1' : 'mr-2 mb-1';
+
   return (
     <div className="text-center">
-      <p className="text-lg md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className={`${textSizeClass} md:text-2xl leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
             <span
               key={index}
-              className="inline-block mr-2 md:mr-3 mb-1 md:mb-2 cursor-pointer hover:opacity-80"
+              className={`inline-block ${wordSpacingClass} md:mr-3 md:mb-2 cursor-pointer hover:opacity-80`}
               onClick={() => handleWordClick(index)}
             >
               {isRevealed ? (
@@ -206,12 +209,11 @@ function FirstLetterMode({ verse, darkMode }) {
           );
         })}
       </p>
-      <p className="text-xs md:text-sm text-gray-400 mt-8">点击空格显示完整单词</p>
     </div>
   );
 }
 
-function FillInMode({ verse, darkMode }) {
+function FillInMode({ verse, darkMode, mobileFontLevel = 0 }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
 
   const handleWordClick = (index) => {
@@ -294,9 +296,11 @@ function FillInMode({ verse, darkMode }) {
     });
   }
 
+  const textSizeClass = mobileFontLevel >= 2 ? 'text-base' : mobileFontLevel === 1 ? 'text-lg' : 'text-xl';
+
   return (
     <div className="text-center">
-      <p className="text-xl md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className={`${textSizeClass} md:text-2xl leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {segments.map((segment, index) => {
           if (!segment.isBlank) {
             return <span key={`text-${index}`}>{segment.token}</span>;
@@ -324,7 +328,6 @@ function FillInMode({ verse, darkMode }) {
       <p className="hidden md:block text-sm md:text-base leading-relaxed mt-4 md:mt-6 text-gray-500 dark:text-gray-300 italic">
         {verse.english}
       </p>
-      <p className="text-xs md:text-sm text-gray-400 mt-6">点击空格查看关键词</p>
     </div>
   );
 }
@@ -699,6 +702,10 @@ function App() {
   const [dataDownloadOverlay, setDataDownloadOverlay] = useState({ visible: false, text: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [progressView, setProgressView] = useState('mastered');
+  const [mobileFontLevel, setMobileFontLevel] = useState(0);
+  const [mobileDragX, setMobileDragX] = useState(0);
+  const [isMobileDragAnimating, setIsMobileDragAnimating] = useState(false);
+  const [mobileViewportWidth, setMobileViewportWidth] = useState(0);
   const [isMobileLayout, setIsMobileLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
@@ -713,6 +720,10 @@ function App() {
   const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
   const syncTimeoutRef = useRef(null);
   const syncOverlayTimeoutRef = useRef(null);
+  const mobileViewportRef = useRef(null);
+  const touchDragMetaRef = useRef({ active: false, horizontal: false, startX: 0, startY: 0 });
+  const pendingMobileFlipRef = useRef(0);
+  const verseContentRef = useRef(null);
   const staticDataRef = useRef({ combined: null, plans: null });
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { getToken } = useAuth();
@@ -1370,6 +1381,30 @@ function App() {
   }, [isMobileLayout, activeTab]);
 
   useEffect(() => {
+    if (!isMobileLayout || activeTab !== 'memorization') {
+      return;
+    }
+
+    const updateWidth = () => {
+      const width = mobileViewportRef.current?.clientWidth || window.innerWidth;
+      setMobileViewportWidth(width);
+    };
+
+    updateWidth();
+    window.addEventListener('resize', updateWidth);
+
+    return () => {
+      window.removeEventListener('resize', updateWidth);
+    };
+  }, [isMobileLayout, activeTab]);
+
+  useEffect(() => {
+    setMobileDragX(0);
+    setIsMobileDragAnimating(false);
+    pendingMobileFlipRef.current = 0;
+  }, [currentVerseIndex, activeTab, viewMode]);
+
+  useEffect(() => {
     if (!isMobileLayout || viewMode !== 'parallel') {
       return;
     }
@@ -1483,6 +1518,42 @@ function App() {
     ['userinfo', 'leaderboard', 'plan-detail'].includes(activeTab)
   );
   const showMobileCompactHeader = isMobileLayout && !showMobileSearchLanding && !showMobileBackOnlyHeader && !showMobileMenuOnlyHeader;
+  const hasMultipleCurrentVerses = currentVerseList.length > 1;
+  const prevVerse = hasMultipleCurrentVerses
+    ? currentVerseList[(currentVerseIndex - 1 + currentVerseList.length) % currentVerseList.length]
+    : null;
+  const nextVerse = hasMultipleCurrentVerses
+    ? currentVerseList[(currentVerseIndex + 1) % currentVerseList.length]
+    : null;
+
+  useEffect(() => {
+    if (!isMobileLayout || activeTab !== 'memorization') {
+      setMobileFontLevel(0);
+      return;
+    }
+  }, [isMobileLayout, activeTab, viewMode, currentVerseIndex, mobileParallelLanguage]);
+
+  useEffect(() => {
+    if (!isMobileLayout || activeTab !== 'memorization') {
+      return;
+    }
+
+    const rafId = window.requestAnimationFrame(() => {
+      const container = verseContentRef.current;
+      if (!container) {
+        return;
+      }
+
+      const hasOverflow = container.scrollHeight - container.clientHeight > 2;
+      if (hasOverflow && mobileFontLevel < 2) {
+        setMobileFontLevel((prev) => Math.min(prev + 1, 2));
+      }
+    });
+
+    return () => {
+      window.cancelAnimationFrame(rafId);
+    };
+  }, [isMobileLayout, activeTab, viewMode, currentVerseIndex, mobileParallelLanguage, mobileFontLevel]);
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
@@ -1553,8 +1624,52 @@ function App() {
   };
 
   const handleTouchStart = (e) => {
+    if (!isMobileLayout || activeTab !== 'memorization' || currentVerseList.length <= 1) {
+      return;
+    }
+
     touchStartX.current = e.touches[0].clientX;
     touchStartY.current = e.touches[0].clientY;
+    touchDragMetaRef.current = {
+      active: true,
+      horizontal: false,
+      startX: e.touches[0].clientX,
+      startY: e.touches[0].clientY,
+    };
+    pendingMobileFlipRef.current = 0;
+    setIsMobileDragAnimating(false);
+  };
+
+  const handleTouchMove = (e) => {
+    if (!isMobileLayout || activeTab !== 'memorization') {
+      return;
+    }
+
+    const meta = touchDragMetaRef.current;
+    if (!meta.active) {
+      return;
+    }
+
+    const touch = e.touches[0];
+    const deltaX = touch.clientX - meta.startX;
+    const deltaY = touch.clientY - meta.startY;
+
+    if (!meta.horizontal) {
+      if (Math.abs(deltaX) < 6 && Math.abs(deltaY) < 6) {
+        return;
+      }
+
+      if (Math.abs(deltaX) <= Math.abs(deltaY)) {
+        touchDragMetaRef.current.active = false;
+        return;
+      }
+
+      touchDragMetaRef.current.horizontal = true;
+    }
+
+    const viewportWidth = mobileViewportWidth || mobileViewportRef.current?.clientWidth || window.innerWidth;
+    const clamped = Math.max(Math.min(deltaX, viewportWidth), -viewportWidth);
+    setMobileDragX(clamped);
   };
 
   const handleTouchEnd = (e) => {
@@ -1564,10 +1679,32 @@ function App() {
     const diffY = touchStartY.current - touchEndY;
 
     if (isMobileLayout) {
-      if (Math.abs(diffY) > 50 && Math.abs(diffY) > Math.abs(diffX)) {
-        if (diffY > 0) goToNextVerse();
-        else goToPrevVerse();
+      const meta = touchDragMetaRef.current;
+      touchDragMetaRef.current.active = false;
+
+      if (!meta.horizontal) {
+        return;
       }
+
+      const viewportWidth = mobileViewportWidth || mobileViewportRef.current?.clientWidth || window.innerWidth;
+      const threshold = Math.max(56, viewportWidth * 0.2);
+
+      setIsMobileDragAnimating(true);
+
+      if (mobileDragX <= -threshold) {
+        pendingMobileFlipRef.current = 1;
+        setMobileDragX(-viewportWidth);
+        return;
+      }
+
+      if (mobileDragX >= threshold) {
+        pendingMobileFlipRef.current = -1;
+        setMobileDragX(viewportWidth);
+        return;
+      }
+
+      pendingMobileFlipRef.current = 0;
+      setMobileDragX(0);
       return;
     }
 
@@ -1577,6 +1714,24 @@ function App() {
     }
   };
 
+  const handleMobileVerseTransitionEnd = () => {
+    if (!isMobileDragAnimating) {
+      return;
+    }
+
+    const pending = pendingMobileFlipRef.current;
+    pendingMobileFlipRef.current = 0;
+    setIsMobileDragAnimating(false);
+
+    if (pending === 1) {
+      setCurrentVerseIndex((prev) => (prev + 1) % currentVerseList.length);
+    } else if (pending === -1) {
+      setCurrentVerseIndex((prev) => (prev - 1 + currentVerseList.length) % currentVerseList.length);
+    }
+
+    setMobileDragX(0);
+  };
+
   const handleMobileParallelToggle = () => {
     if (!isMobileLayout || viewMode !== 'parallel') {
       return;
@@ -1584,6 +1739,71 @@ function App() {
 
     setMobileParallelLanguage((prev) => (prev === 'chinese' ? 'english' : 'chinese'));
   };
+
+  const renderMobileVersePane = (verseItem, pageLabel, isCurrent = false) => (
+    <div className="absolute inset-0 flex flex-col">
+      <div className="text-center mb-2 px-6">
+        <h2 className="text-xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+          {verseItem?.referenceCN}
+        </h2>
+        <p className="text-xs text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+          {verseItem?.reference}
+        </p>
+      </div>
+
+      <div className="text-center mb-2 px-6">
+        <span className="inline-block px-4 py-1 rounded-full text-xs text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+          {pageLabel}
+        </span>
+      </div>
+
+      <div
+        ref={isCurrent ? verseContentRef : undefined}
+        className="flex-1 flex flex-col justify-center space-y-6 px-6"
+      >
+        {viewMode === 'parallel' && (
+          isCurrent ? (
+            <button
+              type="button"
+              onClick={handleMobileParallelToggle}
+              className="text-center px-2 py-1"
+            >
+              {mobileParallelLanguage === 'chinese' ? (
+                <p className={`${mobileFontLevel === 0 ? 'text-3xl' : mobileFontLevel === 1 ? 'text-2xl' : 'text-xl'} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                  {verseItem?.chinese}
+                </p>
+              ) : (
+                <p className={`${mobileFontLevel === 0 ? 'text-xl' : mobileFontLevel === 1 ? 'text-lg' : 'text-base'} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                  {verseItem?.english}
+                </p>
+              )}
+              <p className="mt-3 text-xs text-gray-400">点击切换中/英</p>
+            </button>
+          ) : (
+            <div className="text-center px-2 py-1">
+              {mobileParallelLanguage === 'chinese' ? (
+                <p className={`${mobileFontLevel === 0 ? 'text-3xl' : mobileFontLevel === 1 ? 'text-2xl' : 'text-xl'} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                  {verseItem?.chinese}
+                </p>
+              ) : (
+                <p className={`${mobileFontLevel === 0 ? 'text-xl' : mobileFontLevel === 1 ? 'text-lg' : 'text-base'} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                  {verseItem?.english}
+                </p>
+              )}
+            </div>
+          )
+        )}
+
+        {viewMode === 'first-letter' && verseItem && (
+          <FirstLetterMode verse={verseItem} darkMode={darkMode} mobileFontLevel={mobileFontLevel} />
+        )}
+
+        {viewMode === 'fill-in' && verseItem && (
+          <FillInMode verse={verseItem} darkMode={darkMode} mobileFontLevel={mobileFontLevel} />
+        )}
+      </div>
+    </div>
+  );
 
   const handleMastered = () => {
     if (!currentVerse) return;
@@ -2226,6 +2446,7 @@ function App() {
                 <div
                   ref={cardRef}
                   onTouchStart={handleTouchStart}
+                  onTouchMove={handleTouchMove}
                   onTouchEnd={handleTouchEnd}
                   className="flex-1 rounded-none md:rounded-2xl shadow-none md:shadow-lg p-4 md:p-6 flex flex-col relative overflow-hidden"
                   style={{
@@ -2362,66 +2583,85 @@ function App() {
                       </div>
                     )}
 
-                    <div className="text-center mb-2 md:mb-4">
-                      <h2 className="text-xl md:text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                        {currentVerse?.referenceCN}
-                      </h2>
-                      <p className="text-xs md:text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                        {currentVerse?.reference}
-                      </p>
-                    </div>
+                    {!isMobileLayout && (
+                      <>
+                        <div className="text-center mb-2 md:mb-4">
+                          <h2 className="text-xl md:text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                            {currentVerse?.referenceCN}
+                          </h2>
+                          <p className="text-xs md:text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                            {currentVerse?.reference}
+                          </p>
+                        </div>
 
-                    <div className="text-center mb-2 md:mb-4">
-                      <span className="inline-block px-4 py-1 rounded-full text-xs md:text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
-                        {currentVerseIndex + 1} / {currentVerseList.length}
-                      </span>
-                    </div>
+                        <div className="text-center mb-2 md:mb-4">
+                          <span className="inline-block px-4 py-1 rounded-full text-xs md:text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                            {currentVerseIndex + 1} / {currentVerseList.length}
+                          </span>
+                        </div>
+                      </>
+                    )}
 
-                    <div className={`flex-1 flex flex-col justify-center space-y-6 px-6 md:px-20 ${isMobileLayout ? 'overflow-hidden' : 'overflow-y-auto'}`}>
-                      {viewMode === 'parallel' && (
-                        <>
-                          {isMobileLayout ? (
-                            <button
-                              type="button"
-                              onClick={handleMobileParallelToggle}
-                              className="text-center px-2 py-1"
-                            >
-                              {mobileParallelLanguage === 'chinese' ? (
-                                <p className="text-xl md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                                  {currentVerse?.chinese}
-                                </p>
-                              ) : (
-                                <p className="text-lg md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
-                                  {currentVerse?.english}
-                                </p>
-                              )}
-                              <p className="mt-3 text-xs text-gray-400">点击切换中/英</p>
-                            </button>
-                          ) : (
-                            <>
-                              <div className="text-center">
-                                <p className="text-xl md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                                  {currentVerse?.chinese}
-                                </p>
-                              </div>
-                              <div className="text-center">
-                                <p className="text-lg md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
-                                  {currentVerse?.english}
-                                </p>
-                              </div>
-                            </>
-                          )}
-                        </>
-                      )}
+                    {isMobileLayout ? (
+                      <div ref={mobileViewportRef} className="relative flex-1 overflow-hidden">
+                        <div
+                          onTransitionEnd={handleMobileVerseTransitionEnd}
+                          className="absolute inset-0"
+                          style={{
+                            transform: `translateX(${mobileDragX}px)`,
+                            transition: isMobileDragAnimating ? 'transform 190ms ease-out' : 'none',
+                          }}
+                        >
+                          {renderMobileVersePane(currentVerse, `${currentVerseIndex + 1} / ${currentVerseList.length}`, true)}
+                        </div>
 
-                      {viewMode === 'first-letter' && currentVerse && (
-                        <FirstLetterMode verse={currentVerse} darkMode={darkMode} />
-                      )}
+                        {mobileDragX > 0 && prevVerse && (
+                          <div
+                            className="absolute inset-0"
+                            style={{ transform: `translateX(${mobileDragX - (mobileViewportWidth || window.innerWidth)}px)` }}
+                          >
+                            {renderMobileVersePane(prevVerse, `${(currentVerseIndex - 1 + currentVerseList.length) % currentVerseList.length + 1} / ${currentVerseList.length}`)}
+                          </div>
+                        )}
 
-                      {viewMode === 'fill-in' && currentVerse && (
-                        <FillInMode verse={currentVerse} darkMode={darkMode} />
-                      )}
-                    </div>
+                        {mobileDragX < 0 && nextVerse && (
+                          <div
+                            className="absolute inset-0"
+                            style={{ transform: `translateX(${mobileDragX + (mobileViewportWidth || window.innerWidth)}px)` }}
+                          >
+                            {renderMobileVersePane(nextVerse, `${(currentVerseIndex + 1) % currentVerseList.length + 1} / ${currentVerseList.length}`)}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div
+                        ref={verseContentRef}
+                        className="flex-1 flex flex-col justify-center space-y-6 px-6 md:px-20 overflow-y-auto"
+                      >
+                        {viewMode === 'parallel' && (
+                          <>
+                            <div className="text-center">
+                              <p className="text-xl md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                                {currentVerse?.chinese}
+                              </p>
+                            </div>
+                            <div className="text-center">
+                              <p className="text-lg md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                                {currentVerse?.english}
+                              </p>
+                            </div>
+                          </>
+                        )}
+
+                        {viewMode === 'first-letter' && currentVerse && (
+                          <FirstLetterMode verse={currentVerse} darkMode={darkMode} />
+                        )}
+
+                        {viewMode === 'fill-in' && currentVerse && (
+                          <FillInMode verse={currentVerse} darkMode={darkMode} />
+                        )}
+                      </div>
+                    )}
 
                     {!isMobileLayout && (
                     <div className="text-center mt-4">
