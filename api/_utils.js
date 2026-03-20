@@ -101,12 +101,30 @@ function getAllowedOrigins(bindings) {
   ].filter(Boolean)))
 }
 
+function isTrustedPreviewOrigin(origin) {
+  if (!origin) return false
+
+  try {
+    const { hostname, protocol } = new URL(origin)
+    if (!/^https?:$/.test(protocol)) return false
+
+    return (
+      hostname === 'localhost' ||
+      hostname === '127.0.0.1' ||
+      hostname.endsWith('.pages.dev') ||
+      hostname.endsWith('.vercel.app')
+    )
+  } catch {
+    return false
+  }
+}
+
 function applyCorsHeaders(req, res) {
   const bindings = getBindings()
   const requestOrigin = getRequestOrigin(req)
   const allowedOrigins = getAllowedOrigins(bindings)
 
-  if (requestOrigin && allowedOrigins.includes(requestOrigin)) {
+  if (requestOrigin && (allowedOrigins.includes(requestOrigin) || isTrustedPreviewOrigin(requestOrigin))) {
     res.setHeader('Access-Control-Allow-Origin', requestOrigin)
     res.setHeader('Vary', 'Origin')
   }
