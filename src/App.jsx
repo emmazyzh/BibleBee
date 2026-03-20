@@ -18,6 +18,38 @@ const REVIEW_INTERVALS_IN_DAYS = [1, 2, 4, 7, 15, 30]
 const GUEST_VERSES_PER_GROUP = 3
 const TITLE_FONT_FAMILY = 'var(--font-title)'
 const LOGO_FONT_FAMILY = 'var(--font-logo)'
+const MOBILE_SEARCH_KEYWORDS = ['信心', '恩典', '爱', '因信称义', '真理']
+const DEFAULT_CHINESE_VERSION = 'cuv'
+const DEFAULT_ENGLISH_VERSION = 'niv'
+const OLD_TESTAMENT_BOOKS = new Set([
+  'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth',
+  'FirstSamuel', 'SecondSamuel', 'FirstKings', 'SecondKings', 'FirstChronicles', 'SecondChronicles',
+  'Ezra', 'Nehemiah', 'Esther', 'Job', 'Psalms', 'Proverbs', 'Ecclesiastes', 'SongOfSongs',
+  'Isaiah', 'Jeremiah', 'Lamentations', 'Ezekiel', 'Daniel', 'Hosea', 'Joel', 'Amos',
+  'Obadiah', 'Jonah', 'Micah', 'Nahum', 'Habakkuk', 'Zephaniah', 'Haggai', 'Zechariah', 'Malachi',
+]);
+
+function getTestamentByVerseId(verseId) {
+  const bookKey = String(verseId || '').split('_')[0];
+  return OLD_TESTAMENT_BOOKS.has(bookKey) ? 'old' : 'new';
+}
+
+function normalizeChineseVersion(value) {
+  const normalized = String(value || '').toLowerCase();
+  return normalized === 'cuv' ? 'cuv' : DEFAULT_CHINESE_VERSION;
+}
+
+function normalizeEnglishVersion(value) {
+  const normalized = String(value || '').toLowerCase();
+  return normalized === 'esv' || normalized === 'niv' ? normalized : DEFAULT_ENGLISH_VERSION;
+}
+
+function resolveVersionSettings(userLike = {}) {
+  return {
+    chineseVersion: normalizeChineseVersion(userLike.chVersion || userLike.ch_version),
+    englishVersion: normalizeEnglishVersion(userLike.enVersion || userLike.en_version),
+  };
+}
 
 // 所有可用经文数据
 const allVerses = [
@@ -478,7 +510,7 @@ function moveActiveVerseToFront(memorizationData, verseId) {
   };
 }
 
-function buildBibleSearchResults(combinedData, query) {
+function buildBibleSearchResults(combinedData, query, versions = { chineseVersion: DEFAULT_CHINESE_VERSION, englishVersion: DEFAULT_ENGLISH_VERSION }) {
   const trimmedQuery = query.trim();
   const normalizedQuery = trimmedQuery.toLowerCase();
 
@@ -486,6 +518,8 @@ function buildBibleSearchResults(combinedData, query) {
     return [];
   }
 
+  const chineseVersion = normalizeChineseVersion(versions.chineseVersion);
+  const englishVersion = normalizeEnglishVersion(versions.englishVersion);
   const results = [];
 
   for (const [, book] of Object.entries(combinedData)) {
@@ -493,8 +527,8 @@ function buildBibleSearchResults(combinedData, query) {
       for (const [verseKey, verse] of Object.entries(chapter || {})) {
         const reference = `${book.bookEn} ${chapterKey}:${verseKey}`;
         const referenceCN = `${book.bookZh} ${chapterKey}:${verseKey}`;
-        const chinese = verse.cuv || '';
-        const english = verse.esv || verse.niv || '';
+        const chinese = verse[chineseVersion] || verse.cuv || '';
+        const english = verse[englishVersion] || verse.niv || verse.esv || '';
 
         if (
           chinese.includes(trimmedQuery) ||
@@ -623,14 +657,21 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchResults, setSearchResults] = useState([]);
+  const [searchTestamentFilter, setSearchTestamentFilter] = useState('all');
   const [searchLoading, setSearchLoading] = useState(false);
   const [staticDataUpdating, setStaticDataUpdating] = useState(false);
   const [staticDataMessage, setStaticDataMessage] = useState('');
 
   const [settings, setSettings] = useState({
-    chineseVersion: 'cuv',
-    englishVersion: 'esv',
+    chineseVersion: DEFAULT_CHINESE_VERSION,
+    englishVersion: DEFAULT_ENGLISH_VERSION,
   });
+  const [versionDraft, setVersionDraft] = useState({
+    chineseVersion: DEFAULT_CHINESE_VERSION,
+    englishVersion: DEFAULT_ENGLISH_VERSION,
+  });
+  const [isSavingVersionSettings, setIsSavingVersionSettings] = useState(false);
+  const [versionSettingsMessage, setVersionSettingsMessage] = useState('');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
   const [usernameInput, setUsernameInput] = useState('');
   const [savedUsername, setSavedUsername] = useState('');
@@ -655,18 +696,23 @@ function App() {
   const [memorizationLoading, setMemorizationLoading] = useState(false);
   const [memorizationError, setMemorizationError] = useState('');
   const [manualSyncing, setManualSyncing] = useState(false);
-  const [manualSyncMessage, setManualSyncMessage] = useState('');
+  const [syncOverlay, setSyncOverlay] = useState({ visible: false, text: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [progressView, setProgressView] = useState('mastered');
+  const [isMobileLayout, setIsMobileLayout] = useState(() =>
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
   const leaderboardPageSize = 10;
 
   const cardRef = useRef(null);
   const touchStartX = useRef(0);
+  const touchStartY = useRef(0);
   const avatarInputRef = useRef(null);
   const accountMenuRef = useRef(null);
   const planDetailsCacheRef = useRef({});
   const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
   const syncTimeoutRef = useRef(null);
+  const syncOverlayTimeoutRef = useRef(null);
   const staticDataRef = useRef({ combined: null, plans: null });
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { getToken } = useAuth();
@@ -862,6 +908,8 @@ function App() {
   };
 
   const applyBootstrapPayload = async (payload) => {
+    const nextSettings = resolveVersionSettings(payload?.user || {});
+    setSettings(nextSettings);
     const staticData = await getStaticDataSnapshot();
     const nextPlans = (payload.plans || []).map((plan) => ({
       ...plan,
@@ -870,12 +918,12 @@ function App() {
     const nextPlanDetails = Object.fromEntries(
       Object.entries(payload.planDetails || {}).map(([planId, detail]) => [
         planId,
-        hydratePlanDetail(detail, staticData, settings),
+        hydratePlanDetail(detail, staticData, nextSettings),
       ]),
     );
     const nextMemorizationData = {
-      activeVerses: (payload.memorizationData?.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
-      masteredVerses: (payload.memorizationData?.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+      activeVerses: (payload.memorizationData?.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, nextSettings)),
+      masteredVerses: (payload.memorizationData?.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, nextSettings)),
     };
 
     setPlans(nextPlans);
@@ -949,6 +997,59 @@ function App() {
     }
   };
 
+  const updateUserVersionSettings = async (nextSettings) => {
+    if (!isSignedIn || !user?.id) {
+      return null;
+    }
+
+    return fetchApiJson('/api/settings', {
+      method: 'POST',
+      body: JSON.stringify({
+        chVersion: nextSettings.chineseVersion,
+        enVersion: nextSettings.englishVersion,
+      }),
+    });
+  };
+
+  const handleVersionSettingsChange = (partialSettings) => {
+    const nextSettings = {
+      chineseVersion: normalizeChineseVersion(
+        partialSettings.chineseVersion ?? versionDraft.chineseVersion,
+      ),
+      englishVersion: normalizeEnglishVersion(
+        partialSettings.englishVersion ?? versionDraft.englishVersion,
+      ),
+    };
+
+    setVersionDraft(nextSettings);
+    setVersionSettingsMessage('');
+  };
+
+  const handleSaveVersionSettings = async () => {
+    const nextSettings = {
+      chineseVersion: normalizeChineseVersion(versionDraft.chineseVersion),
+      englishVersion: normalizeEnglishVersion(versionDraft.englishVersion),
+    };
+
+    setSettings(nextSettings);
+    setVersionSettingsMessage('');
+
+    if (!isSignedIn || !user?.id) {
+      return;
+    }
+
+    try {
+      setIsSavingVersionSettings(true);
+      await updateUserVersionSettings(nextSettings);
+      setVersionSettingsMessage('版本设置已保存');
+    } catch (_error) {
+      // Keep UI responsive even when network/database fails.
+      setVersionSettingsMessage('版本已生效，数据库同步稍后重试');
+    } finally {
+      setIsSavingVersionSettings(false);
+    }
+  };
+
   const syncPendingOperationsToServer = async ({ keepalive = false } = {}) => {
     if (!user?.id) return false;
 
@@ -996,7 +1097,11 @@ function App() {
     if (!isSignedIn || !user?.id || manualSyncing) return;
 
     setManualSyncing(true);
-    setManualSyncMessage('同步中...');
+    if (syncOverlayTimeoutRef.current) {
+      clearTimeout(syncOverlayTimeoutRef.current);
+      syncOverlayTimeoutRef.current = null;
+    }
+    setSyncOverlay({ visible: true, text: '数据更新中' });
     setMemorizationError('');
 
     try {
@@ -1032,10 +1137,19 @@ function App() {
       }
 
       setCurrentVerseIndex(0);
-      setManualSyncMessage(pendingRecords.length > 0 ? '已同步云端并刷新本地背诵进度' : '已使用云端背诵进度更新本地数据');
+      setSyncOverlay({
+        visible: true,
+        text: pendingRecords.length > 0 ? '同步完成：云端与本地已更新' : '同步完成：本地已更新为云端数据',
+      });
+      syncOverlayTimeoutRef.current = window.setTimeout(() => {
+        setSyncOverlay({ visible: false, text: '' });
+      }, 1000);
     } catch (error) {
-      setManualSyncMessage('');
       setMemorizationError(`同步失败：${error.message || '未知错误'}`);
+      setSyncOverlay({ visible: true, text: `同步失败：${error.message || '未知错误'}` });
+      syncOverlayTimeoutRef.current = window.setTimeout(() => {
+        setSyncOverlay({ visible: false, text: '' });
+      }, 1000);
     } finally {
       setManualSyncing(false);
     }
@@ -1096,6 +1210,15 @@ function App() {
   }, []);
 
   useEffect(() => {
+    const handleResize = () => {
+      setIsMobileLayout(window.innerWidth < 768);
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  useEffect(() => {
     void ensureStaticJsonCached('plans').catch(() => {});
     void ensureStaticJsonCached('combined').catch(() => {});
   }, []);
@@ -1124,6 +1247,43 @@ function App() {
       setSelectedPlanVerses(nextPlanDetails[selectedPlanId].verses || []);
     }
   }, [settings.chineseVersion, settings.englishVersion]);
+
+  useEffect(() => {
+    setVersionDraft({
+      chineseVersion: normalizeChineseVersion(settings.chineseVersion),
+      englishVersion: normalizeEnglishVersion(settings.englishVersion),
+    });
+  }, [settings.chineseVersion, settings.englishVersion]);
+
+  useEffect(() => {
+    if (!showSearchResults) {
+      return;
+    }
+
+    const normalizedQuery = searchQuery.trim();
+    if (!normalizedQuery) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void (async () => {
+      let combinedData = staticDataRef.current.combined || await getStaticJson('combined');
+
+      if (!combinedData) {
+        await ensureStaticJsonCached('combined');
+        combinedData = staticDataRef.current.combined || await getStaticJson('combined');
+      }
+
+      if (!cancelled && combinedData) {
+        setSearchResults(buildBibleSearchResults(combinedData, normalizedQuery, settings));
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [settings.chineseVersion, settings.englishVersion, showSearchResults, searchQuery]);
 
   useEffect(() => {
     if (!isUserLoaded) return;
@@ -1179,6 +1339,14 @@ function App() {
       window.removeEventListener('beforeunload', handlePageExit);
     };
   }, [user?.id]);
+
+  useEffect(() => {
+    return () => {
+      if (syncOverlayTimeoutRef.current) {
+        clearTimeout(syncOverlayTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleOpenAvatarPicker = () => {
     avatarInputRef.current?.click();
@@ -1272,9 +1440,80 @@ function App() {
   const currentVerse = currentVerseList[currentVerseIndex];
   const showMemorizationLoading = !isUserLoaded || (isSignedIn && memorizationLoading);
   const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
+  const showMobileSearchLanding = isMobileLayout && activeTab === 'search' && !showSearchResults;
+  const showMobileSearchResults = isMobileLayout && activeTab === 'search' && showSearchResults;
+  const filteredSearchResults = searchResults.filter((verse) => {
+    if (searchTestamentFilter === 'all') return true;
+    return searchTestamentFilter === 'old'
+      ? getTestamentByVerseId(verse.id) === 'old'
+      : getTestamentByVerseId(verse.id) === 'new';
+  });
+  const showMobileMenuOnlyHeader = isMobileLayout && ['study', 'progress', 'settings'].includes(activeTab);
+  const showMobileBackOnlyHeader = isMobileLayout && (
+    showMobileSearchResults ||
+    ['userinfo', 'leaderboard', 'plan-detail'].includes(activeTab)
+  );
+  const showMobileCompactHeader = isMobileLayout && !showMobileSearchLanding && !showMobileBackOnlyHeader && !showMobileMenuOnlyHeader;
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
+  const getTabLabel = () => {
+    if (activeTab === 'search') {
+      return showSearchResults ? '搜索结果' : '搜索';
+    }
+    if (activeTab === 'study') return '研读';
+    if (activeTab === 'plan') return '计划';
+    if (activeTab === 'plan-detail') return selectedPlan?.plan_name || '经文列表';
+    if (activeTab === 'progress') return '我的';
+    if (activeTab === 'settings') return '设置';
+    if (activeTab === 'userinfo') return '账号管理';
+    if (activeTab === 'leaderboard') return '排行榜';
+    return '';
+  };
+
+  const handleDesktopBack = () => {
+    if (activeTab === 'plan-detail') {
+      setActiveTab('plan');
+      return;
+    }
+
+    if (activeTab === 'userinfo') {
+      setActiveTab('progress');
+      return;
+    }
+
+    setActiveTab('memorization');
+  };
+  const openMobileSearch = () => {
+    setSidebarOpen(false);
+    setActiveTab('search');
+    setShowSearchResults(false);
+  };
+
+  const handleMobileBack = () => {
+    if (activeTab === 'search') {
+      if (showSearchResults) {
+        setShowSearchResults(false);
+        return;
+      }
+
+      setSearchQuery('');
+      setActiveTab('memorization');
+      return;
+    }
+
+    if (activeTab === 'userinfo') {
+      setActiveTab('memorization');
+      return;
+    }
+
+    if (activeTab === 'plan-detail') {
+      setActiveTab('plan');
+      return;
+    }
+
+    setActiveTab('memorization');
+  };
 
   const goToNextVerse = () => {
     setCurrentVerseIndex((prev) => (prev + 1) % currentVerseList.length);
@@ -1286,13 +1525,25 @@ function App() {
 
   const handleTouchStart = (e) => {
     touchStartX.current = e.touches[0].clientX;
+    touchStartY.current = e.touches[0].clientY;
   };
 
   const handleTouchEnd = (e) => {
     const touchEndX = e.changedTouches[0].clientX;
-    const diff = touchStartX.current - touchEndX;
-    if (Math.abs(diff) > 50) {
-      if (diff > 0) goToNextVerse();
+    const touchEndY = e.changedTouches[0].clientY;
+    const diffX = touchStartX.current - touchEndX;
+    const diffY = touchStartY.current - touchEndY;
+
+    if (isMobileLayout) {
+      if (Math.abs(diffY) > 50 && Math.abs(diffY) > Math.abs(diffX)) {
+        if (diffY > 0) goToNextVerse();
+        else goToPrevVerse();
+      }
+      return;
+    }
+
+    if (Math.abs(diffX) > 50) {
+      if (diffX > 0) goToNextVerse();
       else goToPrevVerse();
     }
   };
@@ -1349,10 +1600,13 @@ function App() {
     }
   };
 
-  const handleSearch = () => {
-    if (!searchQuery.trim()) return;
+  const handleSearch = (nextQuery = searchQuery) => {
+    const normalizedQuery = nextQuery.trim();
+    if (!normalizedQuery) return;
 
+    setSearchQuery(normalizedQuery);
     setShowSearchResults(true);
+    setSearchTestamentFilter('all');
     setActiveTab('search');
     setSearchLoading(true);
 
@@ -1365,11 +1619,16 @@ function App() {
           combinedData = await getStaticJson('combined');
         }
 
-        setSearchResults(buildBibleSearchResults(combinedData, searchQuery));
+        setSearchResults(buildBibleSearchResults(combinedData, normalizedQuery, settings));
       } finally {
         setSearchLoading(false);
       }
     })();
+  };
+
+  const handleQuickKeywordSearch = (keyword) => {
+    setSearchQuery(keyword);
+    handleSearch(keyword);
   };
 
   const addVerseToList = async (verse) => {
@@ -1565,7 +1824,7 @@ function App() {
       {/* Header */}
       <header className="sticky top-0 z-50 shadow-sm" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
         <div className="container mx-auto px-4 py-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="hidden md:flex items-center justify-between gap-3">
             <div className="flex items-center space-x-2 min-w-0">
               <button onClick={toggleSidebar} className={`p-2 rounded-md ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
                 <IconMenu />
@@ -1664,24 +1923,90 @@ function App() {
             </div>
           </div>
 
-          <div className="mt-3 md:hidden">
-            <div className="relative w-full">
-              <input
-                type="text"
-                placeholder="搜索我要背的经文，例如：福音"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                className="w-full pl-10 pr-4 py-2 rounded-full border focus:outline-none focus:border-primary text-sm"
-                style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
-              />
-              <button
-                onClick={handleSearch}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
-              >
-                <IconSearch />
-              </button>
-            </div>
+          <div className="md:hidden">
+            {showMobileSearchLanding ? (
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleMobileBack}
+                  className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                  style={{ color: darkMode ? '#d1d5db' : '#374151' }}
+                >
+                  <IconChevronLeft />
+                </button>
+                <div className="flex-1 relative">
+                  <input
+                    type="text"
+                    placeholder="搜索我要背的经文"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+                    className="w-full rounded-full border px-4 py-2.5 text-sm focus:outline-none focus:border-primary"
+                    style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                  />
+                </div>
+                <button
+                  onClick={() => handleSearch()}
+                  className="text-sm font-medium text-primary"
+                >
+                  搜索
+                </button>
+              </div>
+            ) : showMobileBackOnlyHeader ? (
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={handleMobileBack}
+                  className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                  style={{ color: darkMode ? '#d1d5db' : '#374151' }}
+                >
+                  <IconChevronLeft />
+                </button>
+                <div className="w-10" />
+              </div>
+            ) : showMobileMenuOnlyHeader ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button onClick={toggleSidebar} className={`p-2 rounded-md ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
+                    <IconMenu />
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('memorization')}
+                    className="flex items-center"
+                  >
+                    <img
+                      src="/bblogolong.png"
+                      alt="Bible Bee Logo"
+                      className="h-7 object-contain"
+                    />
+                  </button>
+                </div>
+                <div className="w-10 shrink-0" />
+              </div>
+            ) : showMobileCompactHeader ? (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 min-w-0">
+                  <button onClick={toggleSidebar} className={`p-2 rounded-md ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
+                    <IconMenu />
+                  </button>
+                  <button
+                    onClick={() => setActiveTab('memorization')}
+                    className="flex items-center"
+                  >
+                    <img
+                      src="/bblogolong.png"
+                      alt="Bible Bee Logo"
+                      className="h-7 object-contain"
+                    />
+                  </button>
+                </div>
+                <button
+                  onClick={openMobileSearch}
+                  className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                  style={{ color: darkMode ? '#d1d5db' : '#374151' }}
+                >
+                  <IconSearch />
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       </header>
@@ -1691,8 +2016,43 @@ function App() {
         <aside className={`fixed inset-y-0 left-0 z-40 w-64 transform ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} transition-transform duration-300 ease-in-out shadow-lg`} style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
           <div className="h-full flex flex-col">
             <div className="p-4 border-b" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
+              <div className="md:hidden flex items-center justify-between mb-4">
+                <button
+                  onClick={() => {
+                    setActiveTab('memorization');
+                    setSidebarOpen(false);
+                  }}
+                  className="flex items-center"
+                >
+                  <img
+                    src="/bblogolong.png"
+                    alt="Bible Bee Logo"
+                    className="h-8 object-contain"
+                  />
+                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setActiveTab('leaderboard');
+                      setSidebarOpen(false);
+                    }}
+                    className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                    style={{ color: darkMode ? '#facc15' : '#eab308' }}
+                    title="排行榜"
+                  >
+                    <IconMedal />
+                  </button>
+                  <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
+                    {darkMode ? <IconSun /> : <IconMoon />}
+                  </button>
+                </div>
+              </div>
               <Show when="signed-in">
-                <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={handleOpenAccountPage}
+                  className="flex w-full items-center space-x-2 text-left"
+                >
                   <div className="w-10 h-10 rounded-full overflow-hidden" style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff' }}>
                     {user?.imageUrl ? (
                       <img src={user.imageUrl} alt="用户头像" className="w-full h-full object-cover" />
@@ -1706,7 +2066,7 @@ function App() {
                     <h3 className="font-medium">{displayUsername}</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">已背 {totalMastered} 节</p>
                   </div>
-                </div>
+                </button>
               </Show>
               <Show when="signed-out">
                 <div className="flex items-center space-x-2">
@@ -1723,7 +2083,7 @@ function App() {
             <nav className="flex-1 p-4">
               <ul className="space-y-2">
                 {[
-                  { id: 'memorization', label: '背诵', icon: IconBookOpen },
+                  { id: 'memorization', label: '首页', icon: IconBookOpen },
                   { id: 'study', label: '研读', icon: IconStudy },
                   { id: 'plan', label: '计划', icon: IconBarChart },
                   { id: 'progress', label: '我的', icon: IconUser },
@@ -1742,6 +2102,30 @@ function App() {
                 ))}
               </ul>
             </nav>
+            {isSignedIn && (
+              <div className="md:hidden p-4 border-t space-y-2" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
+                <button
+                  type="button"
+                  onClick={handleOpenAccountPage}
+                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md transition-colors ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                  style={{ color: darkMode ? '#d1d5db' : '#374151' }}
+                >
+                  <IconSettings />
+                  <span>账号管理</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSidebarOpen(false);
+                    signOut({ redirectUrl: '/' });
+                  }}
+                  className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md text-red-500 transition-colors ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
+                >
+                  <IconLogOut />
+                  <span>退出登录</span>
+                </button>
+              </div>
+            )}
           </div>
         </aside>
 
@@ -1753,9 +2137,25 @@ function App() {
         )}
 
         {/* Main Content */}
-        <main className="flex-1 p-2 md:p-4">
+        <main className={`flex-1 ${isMobileLayout && activeTab === 'memorization' ? 'p-0' : 'p-2 md:p-4'}`}>
+          {activeTab !== 'memorization' && (
+            <div className="hidden md:flex max-w-3xl mx-auto mb-4 items-center justify-between px-1 py-1">
+              <button
+                type="button"
+                onClick={handleDesktopBack}
+                className="inline-flex items-center gap-2 text-sm font-medium text-gray-400 dark:text-gray-400 hover:text-gray-500 dark:hover:text-gray-300 hover:underline"
+              >
+                <IconChevronLeft />
+                返回
+              </button>
+              <p className="text-sm text-gray-400 dark:text-gray-400">
+                首页 / {getTabLabel()}
+              </p>
+            </div>
+          )}
+
           {activeTab === 'memorization' && (
-            <div className="h-[calc(100vh-100px)] flex flex-col">
+            <div className="h-[calc(100vh-72px)] md:h-[calc(100vh-100px)] flex flex-col">
               {showEmptyMemorizationState ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                   <div className="text-6xl mb-4">🎉</div>
@@ -1773,28 +2173,50 @@ function App() {
                   ref={cardRef}
                   onTouchStart={handleTouchStart}
                   onTouchEnd={handleTouchEnd}
-                  className="flex-1 rounded-2xl shadow-lg p-4 md:p-6 flex flex-col relative"
+                  className="flex-1 rounded-none md:rounded-2xl shadow-none md:shadow-lg p-4 md:p-6 flex flex-col relative"
                   style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
                 >
                 {isSignedIn && (
                   <button
                     type="button"
-                    title="同步我的背诵进度"
-                    aria-label="同步我的背诵进度"
+                    aria-label="同步背诵进度"
                     onClick={() => void handleManualMemorizationSync()}
                     disabled={manualSyncing}
-                    className={`absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                    className={`group absolute right-3 top-3 md:right-4 md:top-4 z-20 inline-flex items-center justify-center rounded-full p-2 transition-all ${
                       manualSyncing
                         ? 'cursor-wait opacity-60'
                         : darkMode
-                          ? 'hover:bg-[#30363d]'
-                          : 'hover:bg-gray-100'
+                          ? 'text-blue-300 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
+                          : 'text-blue-400 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
                     }`}
-                    style={{ color: darkMode ? '#d1d5db' : '#6b7280' }}
                   >
                     <IconSync />
-                    <span>{manualSyncing ? '同步中...' : '同步我的背诵进度'}</span>
+                    {!manualSyncing && (
+                      <span
+                        className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+                        style={{
+                          backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
+                          color: '#f8fafc',
+                        }}
+                      >
+                        同步背诵进度
+                      </span>
+                    )}
                   </button>
+                )}
+                {syncOverlay.visible && (
+                  <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-6">
+                    <div
+                      className="w-full max-w-md rounded-3xl px-10 py-9 text-center text-xl font-semibold shadow-2xl"
+                      style={{
+                        backgroundColor: 'rgba(10,10,10,0.75)',
+                        color: '#f8fafc',
+                        border: '1px solid rgba(148,163,184,0.32)',
+                      }}
+                    >
+                      {syncOverlay.text}
+                    </div>
+                  </div>
                 )}
                 {showMemorizationLoading ? (
                   <div className="flex-1 flex items-center justify-center text-gray-500">正在加载背诵经文...</div>
@@ -1825,7 +2247,7 @@ function App() {
                   <>
                     <button
                       onClick={goToPrevVerse}
-                      className="absolute left-2 md:left-4 top-1/2 -translate-y-1/2 p-2 md:p-3 rounded-full transition-all hover:bg-gray-200 shadow-md z-10"
+                      className="hidden md:block absolute left-2 md:left-4 top-1/2 -translate-y-1/2 p-2 md:p-3 rounded-full transition-all hover:bg-gray-200 shadow-md z-10"
                       style={{ backgroundColor: darkMode ? 'rgba(33, 38, 45, 0.8)' : 'rgba(255, 255, 255, 0.8)' }}
                     >
                       <IconChevronLeft />
@@ -1833,7 +2255,7 @@ function App() {
 
                     <button
                       onClick={goToNextVerse}
-                      className="absolute right-2 md:right-4 top-1/2 -translate-y-1/2 p-2 md:p-3 rounded-full transition-all hover:bg-gray-200 shadow-md z-10"
+                      className="hidden md:block absolute right-2 md:right-4 top-1/2 -translate-y-1/2 p-2 md:p-3 rounded-full transition-all hover:bg-gray-200 shadow-md z-10"
                       style={{ backgroundColor: darkMode ? 'rgba(33, 38, 45, 0.8)' : 'rgba(255, 255, 255, 0.8)' }}
                     >
                       <IconChevronRight />
@@ -1898,9 +2320,6 @@ function App() {
                     </div>
 
                     <div className="text-center mt-4">
-                      {manualSyncMessage && (
-                        <p className="mb-3 text-sm text-gray-500">{manualSyncMessage}</p>
-                      )}
                       <button
                         onClick={() => setActiveTab('study')}
                         className="text-sm text-primary hover:underline"
@@ -1924,13 +2343,6 @@ function App() {
                       >
                         会背
                       </button>
-                      <button
-                        onClick={handleSkip}
-                        disabled={isSubmittingReview}
-                        className="text-sm text-gray-400 hover:text-gray-600 underline"
-                      >
-                        跳过
-                      </button>
                     </div>
                     {memorizationError && (
                       <p className="text-center text-sm text-red-500 mt-4">{memorizationError}</p>
@@ -1944,51 +2356,88 @@ function App() {
 
           {activeTab === 'search' && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <p className="text-gray-500 text-sm">搜索"{searchQuery}"，找到 {searchResults.length} 节经文</p>
-                <button
-                  onClick={() => { setActiveTab('memorization'); setShowSearchResults(false); }}
-                  className="text-primary hover:underline"
-                >
-                  返回首页
-                </button>
-              </div>
-
-              <div className="space-y-4 max-w-3xl mx-auto">
-                {searchLoading ? (
-                  <p className="text-gray-500 text-center py-10">正在搜索经文...</p>
-                ) : searchResults.length === 0 ? (
-                  <p className="text-gray-500 text-center py-10">未找到匹配的经文</p>
-                ) : (
-                  searchResults.map(verse => (
-                    <div key={verse.id} className="rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                      <div className="flex justify-between items-start mb-4">
-                        <div>
-                          <h3 className="text-xl font-bold text-primary">{renderHighlightedText(verse.referenceCN, searchQuery)}</h3>
-                          <p className="text-sm text-gray-500 mt-1">{renderHighlightedText(verse.reference, searchQuery)}</p>
-                        </div>
+              {showMobileSearchLanding ? (
+                <div className="max-w-3xl mx-auto px-4 pt-6">
+                  <div className="rounded-3xl border px-5 py-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
+                    <p className="text-sm font-medium text-gray-500 dark:text-gray-400">常用搜索关键词</p>
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      {MOBILE_SEARCH_KEYWORDS.map((keyword) => (
                         <button
-                          onClick={() => addVerseToList(verse)}
-                          className="px-5 py-2 bg-primary text-white rounded-full text-sm hover:bg-blue-600 transition-colors"
+                          key={keyword}
+                          onClick={() => handleQuickKeywordSearch(keyword)}
+                          className="rounded-full px-4 py-2 text-sm font-medium transition-colors"
+                          style={{ backgroundColor: darkMode ? '#21262d' : '#eff6ff', color: darkMode ? '#e5e7eb' : '#2563eb' }}
                         >
-                          加入我的背诵
+                          {keyword}
                         </button>
-                      </div>
-                      <div className="space-y-3">
-                        <p className="text-lg leading-relaxed" style={{ color: darkMode ? '#ffffff' : '#1f2937' }}>
-                          {renderHighlightedText(verse.chinese, searchQuery)}
-                        </p>
-                        <p className="italic" style={{ color: darkMode ? '#9ca3af' : '#4b5563' }}>
-                          {renderHighlightedText(verse.english, searchQuery)}
-                        </p>
-                      </div>
-                      <div className="mt-3 pt-3 border-t" style={{ borderColor: darkMode ? '#30363d' : '#f3f4f6' }}>
-                        <span className="text-xs text-gray-400">和合本</span>
-                      </div>
+                      ))}
                     </div>
-                  ))
-                )}
-              </div>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="max-w-3xl mx-auto px-4 md:px-0">
+                    <p className="text-gray-500 text-sm">
+                      搜索“{searchQuery}”，找到 {filteredSearchResults.length} 节经文
+                    </p>
+                    <div className="mt-3 flex items-center gap-2">
+                      {[
+                        { key: 'all', label: '全部' },
+                        { key: 'new', label: '新约' },
+                        { key: 'old', label: '旧约' },
+                      ].map((filterItem) => (
+                        <button
+                          key={filterItem.key}
+                          type="button"
+                          onClick={() => setSearchTestamentFilter(filterItem.key)}
+                          className={`px-3 py-1.5 rounded-full text-xs md:text-sm transition-colors ${
+                            searchTestamentFilter === filterItem.key
+                              ? 'bg-primary text-white'
+                              : darkMode
+                                ? 'bg-[#21262d] text-gray-300 hover:bg-[#30363d]'
+                                : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                          }`}
+                        >
+                          {filterItem.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="space-y-4 max-w-3xl mx-auto">
+                    {searchLoading ? (
+                      <p className="text-gray-500 text-center py-10">正在搜索经文...</p>
+                    ) : filteredSearchResults.length === 0 ? (
+                      <p className="text-gray-500 text-center py-10">未找到匹配的经文</p>
+                    ) : (
+                      filteredSearchResults.map(verse => (
+                        <div key={verse.id} className="rounded-xl shadow-md p-6 hover:shadow-lg transition-shadow" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                          <div className="flex justify-between items-start mb-4">
+                            <div>
+                              <h3 className="text-xl font-bold text-primary">{renderHighlightedText(verse.referenceCN, searchQuery)}</h3>
+                              <p className="text-sm text-gray-500 mt-1">{renderHighlightedText(verse.reference, searchQuery)}</p>
+                            </div>
+                            <button
+                              onClick={() => addVerseToList(verse)}
+                              className="px-5 py-2 bg-primary text-white rounded-full text-sm hover:bg-blue-600 transition-colors"
+                            >
+                              加入我的背诵
+                            </button>
+                          </div>
+                          <div className="space-y-3">
+                            <p className="text-lg leading-relaxed" style={{ color: darkMode ? '#ffffff' : '#1f2937' }}>
+                              {renderHighlightedText(verse.chinese, searchQuery)}
+                            </p>
+                            <p className="italic" style={{ color: darkMode ? '#9ca3af' : '#4b5563' }}>
+                              {renderHighlightedText(verse.english, searchQuery)}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -1996,7 +2445,7 @@ function App() {
             <div className="space-y-6 pt-4 md:pt-6 max-w-3xl mx-auto">
               <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
                 <div>
-                  <p className="text-sm text-gray-400 mt-3">敬畏耶和华是智慧的开端，认识至圣者便是聪明。</p>
+                  <p className="text-sm text-gray-400 mt-0">敬畏耶和华是智慧的开端，认识至圣者便是聪明。</p>
                 </div>
               </div>
 
@@ -2018,10 +2467,6 @@ function App() {
 
           {activeTab === 'plan' && (
             <div className="space-y-6 max-w-3xl mx-auto pt-4 md:pt-6">
-              <div className="text-center mb-8">
-                <p className="text-gray-500 dark:text-gray-300">选择经文列表开始你的背诵之旅</p>
-              </div>
-
               {!isSignedIn ? (
                 <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                   <p className="text-gray-500 dark:text-gray-400 mb-6">登录后可从数据库读取计划并同步背诵进度。</p>
@@ -2224,6 +2669,11 @@ function App() {
                           <IconCamera />
                         </button>
                       </div>
+                      <div>
+                        <p className="text-2xl md:text-3xl font-bold" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                          {displayUsername}
+                        </p>
+                      </div>
                     </div>
 
                     <div className="hidden md:block" />
@@ -2324,7 +2774,11 @@ function App() {
               >
                 <div className="px-6 py-7 md:px-8 md:py-8">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                    <div className="flex items-center gap-4">
+                    <button
+                      type="button"
+                      onClick={handleOpenAccountPage}
+                      className="flex items-center gap-4 text-left"
+                    >
                       <div
                         className="h-14 w-14 md:h-16 md:w-16 rounded-3xl overflow-hidden ring-4 shrink-0"
                         style={{
@@ -2346,17 +2800,32 @@ function App() {
                           <Show when="signed-in">{displayUsername}</Show>
                           <Show when="signed-out">访客模式</Show>
                         </h2>
-                        <p className="mt-2 max-w-sm text-sm md:text-base text-gray-500 dark:text-gray-300">
-                          <Show when="signed-in">你已经建立了稳定的背诵节奏，继续保持。</Show>
+                        <p className="mt-2 max-w-sm text-sm md:text-base text-gray-500 dark:text-gray-300 hidden md:block">
+                          <Show when="signed-in">继续保持背诵节奏！</Show>
                           <Show when="signed-out">登录后可以同步你的背诵进度与个人数据。</Show>
                         </p>
                       </div>
-                    </div>
+                    </button>
 
                     <div className="pl-[4.5rem] md:pl-0 text-left md:text-right">
                       <p className="text-sm text-gray-500 dark:text-gray-300">已掌握经文</p>
                       <p className="text-4xl md:text-6xl font-bold text-primary leading-none mt-1 md:mt-2">{totalMastered}</p>
                       <p className="mt-1 md:mt-2 text-sm text-gray-500 dark:text-gray-300">节经文</p>
+                      <div className="mt-3 flex md:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => setActiveTab('leaderboard')}
+                          className="inline-flex items-center justify-center rounded-full p-2 transition-colors"
+                          style={{
+                            backgroundColor: darkMode ? 'rgba(250,204,21,0.12)' : 'rgba(250,204,21,0.14)',
+                            color: darkMode ? '#facc15' : '#ca8a04',
+                          }}
+                          title="排行榜"
+                          aria-label="排行榜"
+                        >
+                          <IconMedal />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -2381,11 +2850,11 @@ function App() {
                 className="rounded-[1.75rem] border px-6 py-6 md:px-8 shadow-sm"
                 style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between mb-6">
                   <div>
                     <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Library</p>
                     <h3 className="mt-2 text-2xl font-bold">我的经文库</h3>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">复习已经掌握的经文，看看还有哪些经文等着背诵。</p>
+                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 hidden md:block">天地要废去，我的话却不能废去。</p>
                   </div>
                   <div className="inline-flex rounded-2xl p-1" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
                     <button
@@ -2596,7 +3065,7 @@ function App() {
           {activeTab === 'settings' && (
             <div className="max-w-3xl mx-auto space-y-6">
               <div
-                className="overflow-hidden rounded-[2rem] shadow-xl"
+                className="hidden md:block overflow-hidden rounded-[2rem] shadow-xl"
                 style={{
                   background: darkMode
                     ? 'linear-gradient(135deg, #161b22 0%, #1c2430 55%, #0f1720 100%)'
@@ -2608,11 +3077,8 @@ function App() {
                     <div>
                       <p className="text-xs uppercase tracking-[0.28em] text-primary/80 mb-3">Settings</p>
                       <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                        应用设置
+                        当前设置
                       </h2>
-                      <p className="mt-3 max-w-xl text-sm md:text-base text-gray-500 dark:text-gray-300">
-                        当前使用的圣经版本
-                      </p>
                     </div>
                     <div className="hidden md:flex items-center justify-center text-3xl text-primary/80">
                       ⚙️
@@ -2659,8 +3125,8 @@ function App() {
                     <div className="rounded-2xl p-4" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
                       <label className="block text-sm font-medium mb-2">中文版本</label>
                       <select
-                        value={settings.chineseVersion}
-                        onChange={(e) => setSettings({ ...settings, chineseVersion: e.target.value })}
+                        value={versionDraft.chineseVersion}
+                        onChange={(e) => handleVersionSettingsChange({ chineseVersion: e.target.value })}
                         className="w-full px-4 py-3 border rounded-xl"
                         style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
                       >
@@ -2671,8 +3137,8 @@ function App() {
                     <div className="rounded-2xl p-4" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
                       <label className="block text-sm font-medium mb-2">英文版本</label>
                       <select
-                        value={settings.englishVersion}
-                        onChange={(e) => setSettings({ ...settings, englishVersion: e.target.value })}
+                        value={versionDraft.englishVersion}
+                        onChange={(e) => handleVersionSettingsChange({ englishVersion: e.target.value })}
                         className="w-full px-4 py-3 border rounded-xl"
                         style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
                       >
@@ -2680,71 +3146,122 @@ function App() {
                         <option value="niv">NIV</option>
                       </select>
                     </div>
-                  </div>
-                </section>
 
-                <section
-                  className="rounded-[1.75rem] border p-6 shadow-sm"
-                  style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
-                >
-                  <div className="mb-4">
-                    <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Offline Data</p>
-                    <h3 className="mt-2 text-2xl font-bold">圣经数据</h3>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400">圣经数据默认已经缓存本地，日常无需手动更新。</p>
-                  </div>
-
-                  <div
-                    className="mt-6 rounded-3xl p-4"
-                    style={{
-                      background: darkMode
-                        ? 'linear-gradient(160deg, #1b2430 0%, #131a23 100%)'
-                        : 'linear-gradient(160deg, #f9fbff 0%, #fef8ef 100%)',
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium">本地圣经数据</p>
-                        <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">适合离线阅读与经文检索</p>
-                      </div>
-                      <span
-                        className="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
-                        style={{
-                          backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
-                          color: darkMode ? '#93c5fd' : '#1d4ed8',
-                        }}
-                      >
-                        {staticDataUpdating ? '同步中' : '本地缓存'}
-                      </span>
-                    </div>
-
-                    <div className="mt-4 flex flex-col gap-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 min-h-[1rem]">
+                        {versionSettingsMessage}
+                      </p>
                       <button
                         type="button"
-                        onClick={refreshStaticBibleData}
-                        disabled={staticDataUpdating}
+                        onClick={handleSaveVersionSettings}
+                        disabled={
+                          isSavingVersionSettings ||
+                          (versionDraft.chineseVersion === settings.chineseVersion &&
+                            versionDraft.englishVersion === settings.englishVersion)
+                        }
                         className="w-full px-4 py-3 rounded-2xl bg-primary text-white hover:bg-blue-600 disabled:opacity-60 shadow-md"
                       >
-                        {staticDataUpdating ? '正在下载并更新...' : '下载与更新本地圣经数据'}
+                        {isSavingVersionSettings ? '保存中...' : '保存'}
                       </button>
-
-                      {staticDataMessage && (
-                        <div
-                          className="rounded-2xl px-4 py-3 text-sm"
-                          style={{
-                            backgroundColor: staticDataMessage.includes('失败')
-                              ? (darkMode ? 'rgba(127,29,29,0.28)' : '#fef2f2')
-                              : (darkMode ? 'rgba(20,83,45,0.32)' : '#f0fdf4'),
-                            color: staticDataMessage.includes('失败')
-                              ? (darkMode ? '#fca5a5' : '#dc2626')
-                              : (darkMode ? '#86efac' : '#15803d'),
-                          }}
-                        >
-                          {staticDataMessage}
-                        </div>
-                      )}
                     </div>
                   </div>
                 </section>
+
+                <div className="space-y-5">
+                  <section
+                    className="rounded-[1.75rem] border p-6 shadow-sm"
+                    style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                  >
+                    <div className="mb-4">
+                      <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Appearance</p>
+                      <h3 className="mt-2 text-2xl font-bold">夜间模式</h3>
+                    </div>
+
+                    <div className="rounded-2xl p-4" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                      <div className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium">{darkMode ? '当前为夜间模式' : '当前为日间模式'}</p>
+                          <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">切换深色与浅色显示风格</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={toggleDarkMode}
+                          className="inline-flex items-center justify-center rounded-full p-3 transition-colors"
+                          style={{
+                            backgroundColor: darkMode ? 'rgba(250,204,21,0.14)' : '#e0e7ff',
+                            color: darkMode ? '#facc15' : '#4338ca',
+                          }}
+                          aria-label="切换夜间模式"
+                          title="切换夜间模式"
+                        >
+                          {darkMode ? <IconSun /> : <IconMoon />}
+                        </button>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section
+                    className="rounded-[1.75rem] border p-6 shadow-sm"
+                    style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                  >
+                    <div className="mb-4">
+                      <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Offline Data</p>
+                      <h3 className="mt-2 text-2xl font-bold">圣经数据</h3>
+                    </div>
+
+                    <div
+                      className="mt-6 rounded-3xl p-4"
+                      style={{
+                        background: darkMode
+                          ? 'linear-gradient(160deg, #1b2430 0%, #131a23 100%)'
+                          : 'linear-gradient(160deg, #f9fbff 0%, #fef8ef 100%)',
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium">本地圣经数据</p>
+                          <p className="text-xs mt-1 text-gray-500 dark:text-gray-400">适合离线阅读与经文检索</p>
+                        </div>
+                        <span
+                          className="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-medium"
+                          style={{
+                            backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
+                            color: darkMode ? '#93c5fd' : '#1d4ed8',
+                          }}
+                        >
+                          {staticDataUpdating ? '同步中' : '本地缓存'}
+                        </span>
+                      </div>
+
+                      <div className="mt-4 flex flex-col gap-3">
+                        <button
+                          type="button"
+                          onClick={refreshStaticBibleData}
+                          disabled={staticDataUpdating}
+                          className="w-full px-4 py-3 rounded-2xl bg-primary text-white hover:bg-blue-600 disabled:opacity-60 shadow-md"
+                        >
+                          {staticDataUpdating ? '正在下载并更新...' : '下载与更新本地圣经数据'}
+                        </button>
+
+                        {staticDataMessage && (
+                          <div
+                            className="rounded-2xl px-4 py-3 text-sm"
+                            style={{
+                              backgroundColor: staticDataMessage.includes('失败')
+                                ? (darkMode ? 'rgba(127,29,29,0.28)' : '#fef2f2')
+                                : (darkMode ? 'rgba(20,83,45,0.32)' : '#f0fdf4'),
+                              color: staticDataMessage.includes('失败')
+                                ? (darkMode ? '#fca5a5' : '#dc2626')
+                                : (darkMode ? '#86efac' : '#15803d'),
+                            }}
+                          >
+                            {staticDataMessage}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                </div>
               </div>
             </div>
           )}

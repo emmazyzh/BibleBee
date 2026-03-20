@@ -63,7 +63,7 @@ export async function getVerseDetails(verseId, bindings, versions = { english: '
   const planVerse = planVerseIndex[verseId]
 
   if (planVerse) {
-    const englishVersion = versions.english || 'esv'
+    const englishVersion = versions.english || 'niv'
     const chineseVersion = versions.chinese || 'cuv'
 
     return {
@@ -87,7 +87,7 @@ export async function getVerseDetails(verseId, bindings, versions = { english: '
   }
 
   const verseNumbers = expandVerseSpec(verseSpec)
-  const englishVersion = versions.english || 'esv'
+  const englishVersion = versions.english || 'niv'
   const chineseVersion = versions.chinese || 'cuv'
 
   const english = verseNumbers

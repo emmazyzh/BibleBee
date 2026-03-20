@@ -43,14 +43,14 @@ function buildPlanVerseIndex(plansData) {
   }, {})
 }
 
-export function getVerseDetailsFromStaticData(verseId, combinedBible, plansData, versions = { english: 'esv', chinese: 'cuv' }) {
+export function getVerseDetailsFromStaticData(verseId, combinedBible, plansData, versions = { english: 'niv', chinese: 'cuv' }) {
   const { bookKey, chapter, verseSpec } = parseVerseId(verseId)
   const planVerseIndex = buildPlanVerseIndex(plansData)
   const book = combinedBible?.[bookKey]
   const planVerse = planVerseIndex[verseId]
 
   if (planVerse) {
-    const englishVersion = versions.english || 'esv'
+    const englishVersion = versions.english || 'niv'
     const chineseVersion = versions.chinese || 'cuv'
 
     return {
@@ -80,7 +80,7 @@ export function getVerseDetailsFromStaticData(verseId, combinedBible, plansData,
   }
 
   const verseNumbers = expandVerseSpec(verseSpec)
-  const englishVersion = versions.english || 'esv'
+  const englishVersion = versions.english || 'niv'
   const chineseVersion = versions.chinese || 'cuv'
 
   const english = verseNumbers

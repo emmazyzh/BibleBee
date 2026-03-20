@@ -28,6 +28,8 @@ export async function ensureClerkUsersTable(bindings) {
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS clerk_updated_at TIMESTAMPTZ`
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
   await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS modified_at TIMESTAMPTZ NOT NULL DEFAULT NOW()`
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS ch_version TEXT`
+  await sql`ALTER TABLE users ADD COLUMN IF NOT EXISTS en_version TEXT`
   await sql`ALTER TABLE users ALTER COLUMN clerk_user_id SET NOT NULL`
 
   await sql`

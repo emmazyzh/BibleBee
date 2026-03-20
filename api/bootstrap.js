@@ -2,6 +2,19 @@ import { getSql } from '../server/lib/db.js'
 import { getCurrentDbUser } from '../server/lib/current-user.js'
 import { handleCors, sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
 
+const DEFAULT_CH_VERSION = 'cuv'
+const DEFAULT_EN_VERSION = 'niv'
+
+function normalizeChineseVersion(value) {
+  const normalized = String(value || '').toLowerCase()
+  return normalized === 'cuv' ? 'cuv' : DEFAULT_CH_VERSION
+}
+
+function normalizeEnglishVersion(value) {
+  const normalized = String(value || '').toLowerCase()
+  return normalized === 'esv' || normalized === 'niv' ? normalized : DEFAULT_EN_VERSION
+}
+
 function normalizePlanRows(rows) {
   return rows.map((row) => ({
     ...row,
@@ -112,6 +125,8 @@ export default async function handler(req, res) {
         clerkUserId: user.clerk_user_id,
         username: user.username,
         imageUrl: user.image_url,
+        chVersion: normalizeChineseVersion(user.ch_version),
+        enVersion: normalizeEnglishVersion(user.en_version),
       },
       plans,
       planDetails,

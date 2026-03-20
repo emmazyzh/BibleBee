@@ -12,7 +12,7 @@ export async function getCurrentDbUser(request, bindings) {
 
   const sql = getSql(bindings)
   let [user] = await sql`
-    SELECT id, clerk_user_id, email, username, image_url
+    SELECT id, clerk_user_id, email, username, image_url, ch_version, en_version
     FROM users
     WHERE clerk_user_id = ${auth.userId}
     LIMIT 1
@@ -37,7 +37,7 @@ export async function getCurrentDbUser(request, bindings) {
     }, bindings)
 
     ;[user] = await sql`
-      SELECT id, clerk_user_id, email, username, image_url
+      SELECT id, clerk_user_id, email, username, image_url, ch_version, en_version
       FROM users
       WHERE clerk_user_id = ${auth.userId}
       LIMIT 1
