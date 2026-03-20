@@ -6,7 +6,7 @@ export default async function handler(req, res) {
 
   const { name } = req.query
 
-  if (name === 'combined' || name === 'plans') {
+  if (name === 'combined' || name === 'frequent') {
     return sendJson(res, {
       ok: true,
       name,

@@ -31,8 +31,17 @@ function buildKeywords(chineseText) {
     .slice(0, 4)
 }
 
-function buildPlanVerseIndex(plansData) {
-  return Object.values(plansData || {}).reduce((index, plan) => {
+function buildPlanVerseIndex(frequentData) {
+  if (Array.isArray(frequentData)) {
+    return frequentData.reduce((index, verse) => {
+      if (verse?.verse_id && !index[verse.verse_id]) {
+        index[verse.verse_id] = verse
+      }
+      return index
+    }, {})
+  }
+
+  return Object.values(frequentData || {}).reduce((index, plan) => {
     for (const verse of plan?.verses || []) {
       if (verse?.verse_id && !index[verse.verse_id]) {
         index[verse.verse_id] = verse
@@ -43,9 +52,9 @@ function buildPlanVerseIndex(plansData) {
   }, {})
 }
 
-export function getVerseDetailsFromStaticData(verseId, combinedBible, plansData, versions = { english: 'niv', chinese: 'cuv' }) {
+export function getVerseDetailsFromStaticData(verseId, combinedBible, frequentData, versions = { english: 'niv', chinese: 'cuv' }) {
   const { bookKey, chapter, verseSpec } = parseVerseId(verseId)
-  const planVerseIndex = buildPlanVerseIndex(plansData)
+  const planVerseIndex = buildPlanVerseIndex(frequentData)
   const book = combinedBible?.[bookKey]
   const planVerse = planVerseIndex[verseId]
 

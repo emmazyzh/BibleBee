@@ -38,9 +38,18 @@ function buildKeywords(chineseText) {
 async function getPlanVerseIndex(bindings) {
   if (!planVerseIndexPromise) {
     planVerseIndexPromise = (async () => {
-      const plansData = await loadStaticJson('plans', bindings)
+      const frequentData = await loadStaticJson('frequent', bindings)
 
-      return Object.values(plansData).reduce((index, plan) => {
+      if (Array.isArray(frequentData)) {
+        return frequentData.reduce((index, verse) => {
+          if (verse?.verse_id && !index[verse.verse_id]) {
+            index[verse.verse_id] = verse
+          }
+          return index
+        }, {})
+      }
+
+      return Object.values(frequentData || {}).reduce((index, plan) => {
         for (const verse of plan?.verses || []) {
           if (verse?.verse_id && !index[verse.verse_id]) {
             index[verse.verse_id] = verse

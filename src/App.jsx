@@ -633,7 +633,7 @@ function hydrateVerseRecord(record, staticData, settings) {
   }
 
   const verseId = record.verseId || record.verse_id || record.id
-  if (!verseId || !staticData?.combined || !staticData?.plans) {
+  if (!verseId || !staticData?.combined || !staticData?.frequent) {
     return {
       ...record,
       id: verseId || record.id,
@@ -643,7 +643,7 @@ function hydrateVerseRecord(record, staticData, settings) {
 
   return {
     ...record,
-    ...getVerseDetailsFromStaticData(verseId, staticData.combined, staticData.plans, {
+    ...getVerseDetailsFromStaticData(verseId, staticData.combined, staticData.frequent, {
       english: settings.englishVersion,
       chinese: settings.chineseVersion,
     }),
@@ -721,6 +721,7 @@ function App() {
   const [dataDownloadOverlay, setDataDownloadOverlay] = useState({ visible: false, text: '' });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [progressView, setProgressView] = useState('mastered');
+  const [staticDataRevision, setStaticDataRevision] = useState(0);
   const [mobileFontLevel, setMobileFontLevel] = useState(0);
   const [mobileDragX, setMobileDragX] = useState(0);
   const [isMobileDragAnimating, setIsMobileDragAnimating] = useState(false);
@@ -743,7 +744,7 @@ function App() {
   const touchDragMetaRef = useRef({ active: false, horizontal: false, startX: 0, startY: 0 });
   const pendingMobileFlipRef = useRef(0);
   const verseContentRef = useRef(null);
-  const staticDataRef = useRef({ combined: null, plans: null });
+  const staticDataRef = useRef({ combined: null, frequent: null });
   const { signOut, openSignIn, openSignUp } = useClerk();
   const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
@@ -797,27 +798,27 @@ function App() {
     return dedupedUsers;
   };
 
-  const getStaticDataSnapshot = async ({ requirePlans = false, requireCombined = false } = {}) => {
+  const getStaticDataSnapshot = async ({ requireFrequent = false, requireCombined = false } = {}) => {
     let combined = staticDataRef.current.combined;
-    let plansData = staticDataRef.current.plans;
+    let frequentData = staticDataRef.current.frequent;
 
     if (!combined) {
       combined = await getStaticJson('combined');
     }
 
-    if (!plansData) {
-      plansData = await getStaticJson('plans');
+    if (!frequentData) {
+      frequentData = await getStaticJson('frequent');
     }
 
-    if (requirePlans && !plansData) {
-      throw new Error('本地 plans 数据尚未下载完成');
+    if (requireFrequent && !frequentData) {
+      throw new Error('本地 frequent 数据尚未下载完成');
     }
 
     if (requireCombined && !combined) {
       throw new Error('本地 combined 数据尚未下载完成');
     }
 
-    staticDataRef.current = { combined, plans: plansData };
+    staticDataRef.current = { combined, frequent: frequentData };
     return staticDataRef.current;
   };
 
@@ -846,6 +847,7 @@ function App() {
       ...staticDataRef.current,
       [name]: data,
     };
+    setStaticDataRevision((prev) => prev + 1);
     return data;
   };
 
@@ -853,7 +855,7 @@ function App() {
     try {
       setStaticDataUpdating(true);
       setStaticDataMessage('');
-      await ensureStaticJsonCached('plans', { force: true });
+      await ensureStaticJsonCached('frequent', { force: true });
       await ensureStaticJsonCached('combined', { force: true });
       setStaticDataMessage('圣经数据已更新');
 
@@ -873,7 +875,7 @@ function App() {
     }
 
     const result = await fetchApiJson(`/api/plans/${planId}`);
-    const staticData = await getStaticDataSnapshot({ requirePlans: true });
+    const staticData = await getStaticDataSnapshot({ requireFrequent: true });
     const detail = hydratePlanDetail({
       plan: result.plan,
       verses: result.verses || [],
@@ -944,7 +946,7 @@ function App() {
   const applyBootstrapPayload = async (payload) => {
     const nextSettings = resolveVersionSettings(payload?.user || {});
     setSettings(nextSettings);
-    const staticData = await getStaticDataSnapshot({ requirePlans: true });
+    const staticData = await getStaticDataSnapshot({ requireFrequent: true });
     const nextPlans = (payload.plans || []).map((plan) => ({
       ...plan,
       selected_users: normalizeSelectedUsers(plan.selected_users),
@@ -980,9 +982,9 @@ function App() {
     if (!isSignedIn) return;
 
     try {
-      const plansCacheTask = ensureStaticJsonCached('plans');
+      const frequentCacheTask = ensureStaticJsonCached('frequent');
       void ensureStaticJsonCached('combined').catch(() => {});
-      await plansCacheTask;
+      await frequentCacheTask;
 
       if (showLoader) {
         setPlansLoading(true);
@@ -1003,7 +1005,7 @@ function App() {
           ...plan,
           selected_users: normalizeSelectedUsers(plan.selected_users),
         }));
-        const staticData = await getStaticDataSnapshot({ requirePlans: true });
+        const staticData = await getStaticDataSnapshot({ requireFrequent: true });
         const nextMemorizationData = {
           activeVerses: (memorizationResult.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
           masteredVerses: (memorizationResult.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
@@ -1140,7 +1142,7 @@ function App() {
     setMemorizationError('');
 
     try {
-      const staticData = await getStaticDataSnapshot({ requirePlans: true });
+      const staticData = await getStaticDataSnapshot({ requireFrequent: true });
       const pendingRecords = await getPendingOperations(user.id);
 
       if (pendingRecords.length > 0) {
@@ -1254,12 +1256,12 @@ function App() {
   }, []);
 
   useEffect(() => {
-    void ensureStaticJsonCached('plans').catch(() => {});
+    void ensureStaticJsonCached('frequent', { force: true }).catch(() => {});
     void ensureStaticJsonCached('combined').catch(() => {});
   }, []);
 
   useEffect(() => {
-    if (!isSignedIn || !staticDataRef.current.plans) {
+    if (!isSignedIn || !staticDataRef.current.frequent) {
       return;
     }
 
@@ -1281,7 +1283,7 @@ function App() {
       setSelectedPlan(nextPlanDetails[selectedPlanId].plan);
       setSelectedPlanVerses(nextPlanDetails[selectedPlanId].verses || []);
     }
-  }, [settings.chineseVersion, settings.englishVersion]);
+  }, [settings.chineseVersion, settings.englishVersion, staticDataRevision]);
 
   useEffect(() => {
     setVersionDraft({
