@@ -21,6 +21,7 @@ const LOGO_FONT_FAMILY = 'var(--font-logo)'
 const MOBILE_SEARCH_KEYWORDS = ['信心', '恩典', '爱', '因信称义', '真理']
 const DEFAULT_CHINESE_VERSION = 'cuv'
 const DEFAULT_ENGLISH_VERSION = 'niv'
+const MAX_MOBILE_FONT_LEVEL = 4
 const OLD_TESTAMENT_BOOKS = new Set([
   'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth',
   'FirstSamuel', 'SecondSamuel', 'FirstKings', 'SecondKings', 'FirstChronicles', 'SecondChronicles',
@@ -183,12 +184,21 @@ function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
     setRevealedWords(new Set());
   }, [verse?.id]);
 
-  const textSizeClass = mobileFontLevel >= 2 ? 'text-sm' : mobileFontLevel === 1 ? 'text-base' : 'text-lg';
-  const wordSpacingClass = mobileFontLevel >= 1 ? 'mr-1 mb-1' : 'mr-2 mb-1';
+  const textSizeClass = mobileFontLevel >= 4
+    ? 'text-[11px]'
+    : mobileFontLevel === 3
+      ? 'text-xs'
+      : mobileFontLevel === 2
+        ? 'text-sm'
+        : mobileFontLevel === 1
+          ? 'text-base'
+          : 'text-lg';
+  const wordSpacingClass = mobileFontLevel >= 3 ? 'mr-0.5 mb-0.5' : mobileFontLevel >= 1 ? 'mr-1 mb-1' : 'mr-2 mb-1';
+  const lineHeightClass = mobileFontLevel >= 3 ? 'leading-normal' : 'leading-relaxed';
 
   return (
     <div className="text-center">
-      <p className={`${textSizeClass} md:text-2xl leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className={`${textSizeClass} ${lineHeightClass} md:text-2xl md:leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
@@ -296,11 +306,21 @@ function FillInMode({ verse, darkMode, mobileFontLevel = 0 }) {
     });
   }
 
-  const textSizeClass = mobileFontLevel >= 2 ? 'text-base' : mobileFontLevel === 1 ? 'text-lg' : 'text-xl';
+  const textSizeClass = mobileFontLevel >= 4
+    ? 'text-xs'
+    : mobileFontLevel === 3
+      ? 'text-sm'
+      : mobileFontLevel === 2
+        ? 'text-base'
+        : mobileFontLevel === 1
+          ? 'text-lg'
+          : 'text-xl';
+  const lineHeightClass = mobileFontLevel >= 3 ? 'leading-normal' : 'leading-relaxed';
+  const blankSizeClass = mobileFontLevel >= 3 ? 'mx-0.5 my-0.5 px-1.5 py-0.5' : mobileFontLevel >= 1 ? 'mx-0.5 my-0.5 px-2 py-0.5' : 'mx-1 my-1 px-2 py-1';
 
   return (
     <div className="text-center">
-      <p className={`${textSizeClass} md:text-2xl leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className={`${textSizeClass} ${lineHeightClass} md:text-2xl md:leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {segments.map((segment, index) => {
           if (!segment.isBlank) {
             return <span key={`text-${index}`}>{segment.token}</span>;
@@ -314,7 +334,7 @@ function FillInMode({ verse, darkMode, mobileFontLevel = 0 }) {
               key={`blank-${index}`}
               type="button"
               onClick={() => !isRevealed && handleWordClick(index)}
-              className={`inline-flex items-center justify-center mx-1 my-1 px-2 py-1 rounded border-b-2 transition-all align-baseline ${isRevealed
+              className={`inline-flex items-center justify-center ${blankSizeClass} rounded border-b-2 transition-all align-baseline ${isRevealed
                 ? 'bg-green-100 text-green-800 border-green-300 dark:bg-green-900 dark:text-green-200 dark:border-green-700'
                 : 'bg-primary/10 text-primary border-primary hover:bg-primary/20'
               }`}
@@ -1545,8 +1565,8 @@ function App() {
       }
 
       const hasOverflow = container.scrollHeight - container.clientHeight > 2;
-      if (hasOverflow && mobileFontLevel < 2) {
-        setMobileFontLevel((prev) => Math.min(prev + 1, 2));
+      if (hasOverflow && mobileFontLevel < MAX_MOBILE_FONT_LEVEL) {
+        setMobileFontLevel((prev) => Math.min(prev + 1, MAX_MOBILE_FONT_LEVEL));
       }
     });
 
@@ -1740,6 +1760,22 @@ function App() {
     setMobileParallelLanguage((prev) => (prev === 'chinese' ? 'english' : 'chinese'));
   };
 
+  const getMobileParallelChineseTextClass = () => {
+    if (mobileFontLevel >= 4) return 'text-base';
+    if (mobileFontLevel === 3) return 'text-lg';
+    if (mobileFontLevel === 2) return 'text-xl';
+    if (mobileFontLevel === 1) return 'text-2xl';
+    return 'text-3xl';
+  };
+
+  const getMobileParallelEnglishTextClass = () => {
+    if (mobileFontLevel >= 4) return 'text-xs';
+    if (mobileFontLevel === 3) return 'text-sm';
+    if (mobileFontLevel === 2) return 'text-base';
+    if (mobileFontLevel === 1) return 'text-lg';
+    return 'text-xl';
+  };
+
   const renderMobileVersePane = (verseItem, pageLabel, isCurrent = false) => (
     <div className="absolute inset-0 flex flex-col">
       <div className="text-center mb-2 px-6">
@@ -1769,11 +1805,11 @@ function App() {
               className="text-center px-2 py-1"
             >
               {mobileParallelLanguage === 'chinese' ? (
-                <p className={`${mobileFontLevel === 0 ? 'text-3xl' : mobileFontLevel === 1 ? 'text-2xl' : 'text-xl'} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                <p className={`${getMobileParallelChineseTextClass()} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
                   {verseItem?.chinese}
                 </p>
               ) : (
-                <p className={`${mobileFontLevel === 0 ? 'text-xl' : mobileFontLevel === 1 ? 'text-lg' : 'text-base'} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                <p className={`${getMobileParallelEnglishTextClass()} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
                   {verseItem?.english}
                 </p>
               )}
@@ -1782,11 +1818,11 @@ function App() {
           ) : (
             <div className="text-center px-2 py-1">
               {mobileParallelLanguage === 'chinese' ? (
-                <p className={`${mobileFontLevel === 0 ? 'text-3xl' : mobileFontLevel === 1 ? 'text-2xl' : 'text-xl'} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                <p className={`${getMobileParallelChineseTextClass()} leading-relaxed font-medium`} style={{ fontFamily: TITLE_FONT_FAMILY }}>
                   {verseItem?.chinese}
                 </p>
               ) : (
-                <p className={`${mobileFontLevel === 0 ? 'text-xl' : mobileFontLevel === 1 ? 'text-lg' : 'text-base'} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                <p className={`${getMobileParallelEnglishTextClass()} leading-relaxed`} style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
                   {verseItem?.english}
                 </p>
               )}
@@ -2586,7 +2622,7 @@ function App() {
                     {!isMobileLayout && (
                       <>
                         <div className="text-center mb-2 md:mb-4">
-                          <h2 className="text-xl md:text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                          <h2 className="text-xl md:text-2xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                             {currentVerse?.referenceCN}
                           </h2>
                           <p className="text-xs md:text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
@@ -2674,20 +2710,13 @@ function App() {
                     </div>
                     )}
 
-                    <div className="flex justify-center items-center space-x-6 mt-6">
-                      <button
-                        onClick={handleNotMastered}
-                        disabled={isSubmittingReview}
-                        className="px-8 py-3 rounded-full border-2 border-orange-400 text-orange-500 hover:bg-orange-50 dark:hover:bg-orange-900/20 font-medium transition-all"
-                      >
-                        不熟
-                      </button>
+                    <div className="flex justify-center items-center mt-6">
                       <button
                         onClick={handleMastered}
                         disabled={isSubmittingReview}
-                        className="px-8 py-3 rounded-full bg-green-500 text-white hover:bg-green-600 font-medium transition-all shadow-lg"
+                        className="px-10 py-3 rounded-full bg-green-500 text-white hover:bg-green-600 font-medium transition-all shadow-lg"
                       >
-                        会背
+                        会背了
                       </button>
                     </div>
                     {memorizationError && (
