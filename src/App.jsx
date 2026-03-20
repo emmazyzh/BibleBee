@@ -185,7 +185,7 @@ function FirstLetterMode({ verse, darkMode }) {
 
   return (
     <div className="text-center">
-      <p className="text-base md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className="text-lg md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
@@ -296,7 +296,7 @@ function FillInMode({ verse, darkMode }) {
 
   return (
     <div className="text-center">
-      <p className="text-lg md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+      <p className="text-xl md:text-2xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY }}>
         {segments.map((segment, index) => {
           if (!segment.isBlank) {
             return <span key={`text-${index}`}>{segment.token}</span>;
@@ -2209,7 +2209,7 @@ function App() {
           )}
 
           {activeTab === 'memorization' && (
-            <div className="h-[calc(100vh-72px)] md:h-[calc(100vh-100px)] flex flex-col">
+            <div className="h-[calc(100dvh-72px)] md:h-[calc(100vh-100px)] flex flex-col">
               {showEmptyMemorizationState ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                   <div className="text-6xl mb-4">🎉</div>
@@ -2232,6 +2232,7 @@ function App() {
                     backgroundColor: darkMode ? '#161b22' : '#ffffff',
                     touchAction: isMobileLayout ? 'none' : 'auto',
                     overscrollBehavior: isMobileLayout ? 'none' : 'auto',
+                    paddingBottom: isMobileLayout ? 'calc(env(safe-area-inset-bottom, 0px) + 12px)' : undefined,
                   }}
                 >
                 {isSignedIn && (
@@ -2320,7 +2321,7 @@ function App() {
                     </button>
 
                     {isMobileLayout ? (
-                      <div className="flex justify-center items-center gap-2 mb-6">
+                      <div className="flex justify-center items-center gap-2 mb-3 md:mb-6">
                         {[
                           { key: 'parallel', label: '对照' },
                           { key: 'fill-in', label: '挖空' },
@@ -2361,16 +2362,16 @@ function App() {
                       </div>
                     )}
 
-                    <div className="text-center mb-4">
-                      <h2 className="text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                    <div className="text-center mb-2 md:mb-4">
+                      <h2 className="text-xl md:text-3xl font-bold text-primary mb-1" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                         {currentVerse?.referenceCN}
                       </h2>
-                      <p className="text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                      <p className="text-xs md:text-sm text-gray-500" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                         {currentVerse?.reference}
                       </p>
                     </div>
 
-                    <div className="text-center mb-4">
+                    <div className="text-center mb-2 md:mb-4">
                       <span className="inline-block px-4 py-1 rounded-full text-xs md:text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
                         {currentVerseIndex + 1} / {currentVerseList.length}
                       </span>
@@ -2386,11 +2387,11 @@ function App() {
                               className="text-center px-2 py-1"
                             >
                               {mobileParallelLanguage === 'chinese' ? (
-                                <p className="text-lg md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                                <p className="text-xl md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                                   {currentVerse?.chinese}
                                 </p>
                               ) : (
-                                <p className="text-base md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                                <p className="text-lg md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
                                   {currentVerse?.english}
                                 </p>
                               )}
@@ -2399,12 +2400,12 @@ function App() {
                           ) : (
                             <>
                               <div className="text-center">
-                                <p className="text-lg md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                                <p className="text-xl md:text-2xl leading-relaxed font-medium" style={{ fontFamily: TITLE_FONT_FAMILY }}>
                                   {currentVerse?.chinese}
                                 </p>
                               </div>
                               <div className="text-center">
-                                <p className="text-base md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
+                                <p className="text-lg md:text-xl leading-relaxed" style={{ fontFamily: TITLE_FONT_FAMILY, color: darkMode ? '#e5e7eb' : '#4b5563' }}>
                                   {currentVerse?.english}
                                 </p>
                               </div>
