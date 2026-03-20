@@ -21,7 +21,6 @@ const LOGO_FONT_FAMILY = 'var(--font-logo)'
 const MOBILE_SEARCH_KEYWORDS = ['信心', '恩典', '爱', '因信称义', '真理']
 const DEFAULT_CHINESE_VERSION = 'cuv'
 const DEFAULT_ENGLISH_VERSION = 'niv'
-const MAX_MOBILE_FONT_LEVEL = 4
 const OLD_TESTAMENT_BOOKS = new Set([
   'Genesis', 'Exodus', 'Leviticus', 'Numbers', 'Deuteronomy', 'Joshua', 'Judges', 'Ruth',
   'FirstSamuel', 'SecondSamuel', 'FirstKings', 'SecondKings', 'FirstChronicles', 'SecondChronicles',
@@ -185,14 +184,14 @@ function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
   }, [verse?.id]);
 
   const textSizeClass = mobileFontLevel >= 4
-    ? 'text-[11px]'
+    ? 'text-base'
     : mobileFontLevel === 3
-      ? 'text-xs'
+      ? 'text-lg'
       : mobileFontLevel === 2
-        ? 'text-sm'
+        ? 'text-xl'
         : mobileFontLevel === 1
-          ? 'text-base'
-          : 'text-lg';
+          ? 'text-2xl'
+          : 'text-3xl';
   const wordSpacingClass = mobileFontLevel >= 3 ? 'mr-0.5 mb-0.5' : mobileFontLevel >= 1 ? 'mr-1 mb-1' : 'mr-2 mb-1';
   const lineHeightClass = mobileFontLevel >= 3 ? 'leading-normal' : 'leading-relaxed';
 
@@ -1547,33 +1546,35 @@ function App() {
     : null;
 
   useEffect(() => {
-    if (!isMobileLayout || activeTab !== 'memorization') {
+    if (!isMobileLayout || activeTab !== 'memorization' || !currentVerse) {
       setMobileFontLevel(0);
       return;
     }
-  }, [isMobileLayout, activeTab, viewMode, currentVerseIndex, mobileParallelLanguage]);
 
-  useEffect(() => {
-    if (!isMobileLayout || activeTab !== 'memorization') {
-      return;
+    let contentWeight = 0;
+
+    if (viewMode === 'parallel') {
+      if (mobileParallelLanguage === 'chinese') {
+        contentWeight = String(currentVerse.chinese || '').length;
+      } else {
+        contentWeight = String(currentVerse.english || '').split(/\s+/).filter(Boolean).length * 4;
+      }
+    } else if (viewMode === 'fill-in') {
+      contentWeight = String(currentVerse.chineseBlank || currentVerse.chinese || '')
+        .replace(/[#\s]/g, '')
+        .length;
+    } else if (viewMode === 'first-letter') {
+      contentWeight = String(currentVerse.english || '').split(/\s+/).filter(Boolean).length * 5;
     }
 
-    const rafId = window.requestAnimationFrame(() => {
-      const container = verseContentRef.current;
-      if (!container) {
-        return;
-      }
+    let nextLevel = 0;
+    if (contentWeight > 160) nextLevel = 4;
+    else if (contentWeight > 120) nextLevel = 3;
+    else if (contentWeight > 85) nextLevel = 2;
+    else if (contentWeight > 55) nextLevel = 1;
 
-      const hasOverflow = container.scrollHeight - container.clientHeight > 2;
-      if (hasOverflow && mobileFontLevel < MAX_MOBILE_FONT_LEVEL) {
-        setMobileFontLevel((prev) => Math.min(prev + 1, MAX_MOBILE_FONT_LEVEL));
-      }
-    });
-
-    return () => {
-      window.cancelAnimationFrame(rafId);
-    };
-  }, [isMobileLayout, activeTab, viewMode, currentVerseIndex, mobileParallelLanguage, mobileFontLevel]);
+    setMobileFontLevel(nextLevel);
+  }, [isMobileLayout, activeTab, viewMode, currentVerseIndex, mobileParallelLanguage, currentVerse]);
 
   const toggleDarkMode = () => setDarkMode(!darkMode);
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
@@ -1769,11 +1770,11 @@ function App() {
   };
 
   const getMobileParallelEnglishTextClass = () => {
-    if (mobileFontLevel >= 4) return 'text-xs';
-    if (mobileFontLevel === 3) return 'text-sm';
-    if (mobileFontLevel === 2) return 'text-base';
-    if (mobileFontLevel === 1) return 'text-lg';
-    return 'text-xl';
+    if (mobileFontLevel >= 4) return 'text-base';
+    if (mobileFontLevel === 3) return 'text-lg';
+    if (mobileFontLevel === 2) return 'text-xl';
+    if (mobileFontLevel === 1) return 'text-2xl';
+    return 'text-3xl';
   };
 
   const renderMobileVersePane = (verseItem, pageLabel, isCurrent = false) => (
