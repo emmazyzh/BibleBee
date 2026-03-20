@@ -134,6 +134,10 @@ const IconBookmarkPlus = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
 );
 
+const IconSync = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M8 16H3v5"/></svg>
+);
+
 // 首字母模式组件
 function FirstLetterMode({ verse, darkMode }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
@@ -650,6 +654,8 @@ function App() {
   const [memorizationData, setMemorizationData] = useState({ activeVerses: [], masteredVerses: [] });
   const [memorizationLoading, setMemorizationLoading] = useState(false);
   const [memorizationError, setMemorizationError] = useState('');
+  const [manualSyncing, setManualSyncing] = useState(false);
+  const [manualSyncMessage, setManualSyncMessage] = useState('');
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [progressView, setProgressView] = useState('mastered');
   const leaderboardPageSize = 10;
@@ -984,6 +990,55 @@ function App() {
     }
 
     schedulePendingSync();
+  };
+
+  const handleManualMemorizationSync = async () => {
+    if (!isSignedIn || !user?.id || manualSyncing) return;
+
+    setManualSyncing(true);
+    setManualSyncMessage('同步中...');
+    setMemorizationError('');
+
+    try {
+      const staticData = await getStaticDataSnapshot();
+      const pendingRecords = await getPendingOperations(user.id);
+
+      if (pendingRecords.length > 0) {
+        try {
+          await syncPendingOperationsToServer();
+        } catch (error) {
+          throw new Error(`推送本地背诵进度失败：${error.message || '未知错误'}`);
+        }
+      }
+
+      let remoteMemorizationResult;
+
+      try {
+        remoteMemorizationResult = await fetchApiJson('/api/memorization');
+      } catch (error) {
+        throw new Error(`读取云端背诵数据失败：${error.message || '未知错误'}`);
+      }
+
+      const remoteMemorizationData = {
+        activeVerses: (remoteMemorizationResult.activeVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+        masteredVerses: (remoteMemorizationResult.masteredVerses || []).map((item) => hydrateVerseRecord(item, staticData, settings)),
+      };
+
+      try {
+        setMemorizationData(remoteMemorizationData);
+        await persistUserSnapshot({ memorizationData: remoteMemorizationData });
+      } catch (error) {
+        throw new Error(`刷新本地背诵缓存失败：${error.message || '未知错误'}`);
+      }
+
+      setCurrentVerseIndex(0);
+      setManualSyncMessage(pendingRecords.length > 0 ? '已同步云端并刷新本地背诵进度' : '已使用云端背诵进度更新本地数据');
+    } catch (error) {
+      setManualSyncMessage('');
+      setMemorizationError(`同步失败：${error.message || '未知错误'}`);
+    } finally {
+      setManualSyncing(false);
+    }
   };
 
   useEffect(() => {
@@ -1721,6 +1776,26 @@ function App() {
                   className="flex-1 rounded-2xl shadow-lg p-4 md:p-6 flex flex-col relative"
                   style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
                 >
+                {isSignedIn && (
+                  <button
+                    type="button"
+                    title="同步我的背诵进度"
+                    aria-label="同步我的背诵进度"
+                    onClick={() => void handleManualMemorizationSync()}
+                    disabled={manualSyncing}
+                    className={`absolute right-4 top-4 z-20 inline-flex items-center gap-2 rounded-full px-3 py-2 text-sm font-medium transition-colors ${
+                      manualSyncing
+                        ? 'cursor-wait opacity-60'
+                        : darkMode
+                          ? 'hover:bg-[#30363d]'
+                          : 'hover:bg-gray-100'
+                    }`}
+                    style={{ color: darkMode ? '#d1d5db' : '#6b7280' }}
+                  >
+                    <IconSync />
+                    <span>{manualSyncing ? '同步中...' : '同步我的背诵进度'}</span>
+                  </button>
+                )}
                 {showMemorizationLoading ? (
                   <div className="flex-1 flex items-center justify-center text-gray-500">正在加载背诵经文...</div>
                 ) : currentVerseList.length === 0 ? (
@@ -1823,6 +1898,9 @@ function App() {
                     </div>
 
                     <div className="text-center mt-4">
+                      {manualSyncMessage && (
+                        <p className="mb-3 text-sm text-gray-500">{manualSyncMessage}</p>
+                      )}
                       <button
                         onClick={() => setActiveTab('study')}
                         className="text-sm text-primary hover:underline"

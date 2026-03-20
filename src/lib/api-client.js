@@ -39,11 +39,22 @@ export async function fetchApiJson(path, options) {
     },
   })
 
-  const payload = await response.json().catch(() => ({}))
+  const rawText = await response.text()
+  let payload = {}
+
+  if (rawText) {
+    try {
+      payload = JSON.parse(rawText)
+    } catch {
+      payload = {}
+    }
+  }
 
   if (!response.ok) {
-    const error = new Error(payload.error || '请求失败，请稍后重试')
+    const detail = payload.error || rawText.slice(0, 200) || '请求失败，请稍后重试'
+    const error = new Error(`HTTP ${response.status}: ${detail}`)
     error.status = response.status
+    error.responseText = rawText
     throw error
   }
 

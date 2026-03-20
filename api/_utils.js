@@ -1,5 +1,4 @@
 import { ApiError } from '../server/lib/http.js'
-import { readEnvList } from '../server/lib/env.js'
 
 function getHeaderValue(value) {
   if (Array.isArray(value)) {
@@ -91,40 +90,10 @@ function getRequestOrigin(req) {
   return normalizeOrigin(getHeaderValue(req.headers?.origin))
 }
 
-function getAllowedOrigins(bindings) {
-  return Array.from(new Set([
-    ...readEnvList('FRONTEND_ORIGINS', bindings).map(normalizeOrigin),
-    normalizeOrigin(bindings?.VITE_VERCEL_APP_URL),
-    normalizeOrigin(bindings?.VITE_API_BASE_URL),
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-  ].filter(Boolean)))
-}
-
-function isTrustedPreviewOrigin(origin) {
-  if (!origin) return false
-
-  try {
-    const { hostname, protocol } = new URL(origin)
-    if (!/^https?:$/.test(protocol)) return false
-
-    return (
-      hostname === 'localhost' ||
-      hostname === '127.0.0.1' ||
-      hostname.endsWith('.pages.dev') ||
-      hostname.endsWith('.vercel.app')
-    )
-  } catch {
-    return false
-  }
-}
-
 function applyCorsHeaders(req, res) {
-  const bindings = getBindings()
   const requestOrigin = getRequestOrigin(req)
-  const allowedOrigins = getAllowedOrigins(bindings)
 
-  if (requestOrigin && (allowedOrigins.includes(requestOrigin) || isTrustedPreviewOrigin(requestOrigin))) {
+  if (requestOrigin) {
     res.setHeader('Access-Control-Allow-Origin', requestOrigin)
     res.setHeader('Vary', 'Origin')
   }
