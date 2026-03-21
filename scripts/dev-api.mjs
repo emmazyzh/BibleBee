@@ -4,6 +4,7 @@ import { parse as parseUrl } from 'node:url'
 import bootstrapHandler from '../api/bootstrap.js'
 import clerkWebhookHandler, { config as clerkWebhookConfig } from '../api/clerk-webhook.js'
 import dbTestHandler from '../api/db-test.js'
+import leaderboardHandler from '../api/leaderboard.js'
 import meHandler from '../api/me.js'
 import memorizationHandler from '../api/memorization/index.js'
 import memorizationReviewHandler from '../api/memorization/review.js'
@@ -18,6 +19,7 @@ const port = Number(process.env.DEV_API_PORT || 3001)
 const routes = [
   { method: 'GET', pattern: /^\/api\/me\/?$/, handler: meHandler },
   { method: 'GET', pattern: /^\/api\/bootstrap\/?$/, handler: bootstrapHandler },
+  { method: 'GET', pattern: /^\/api\/leaderboard\/?$/, handler: leaderboardHandler },
   { method: 'GET', pattern: /^\/api\/static-data\/?$/, handler: staticDataHandler },
   { method: 'POST', pattern: /^\/api\/sync\/?$/, handler: syncHandler },
   { method: 'GET', pattern: /^\/api\/db-test\/?$/, handler: dbTestHandler },

@@ -76,15 +76,6 @@ const verseCollections = [
   { id: 'gospel', name: '福音经文', description: '关于福音的大能', count: 2, verses: [10, 11], color: 'from-purple-500 to-indigo-500', icon: '📖' },
 ];
 
-// 模拟排行榜数据
-const leaderboardData = [
-  { id: 1, name: 'David Chen', avatar: null, masteredCount: 156 },
-  { id: 2, name: 'Sarah Wang', avatar: null, masteredCount: 142 },
-  { id: 3, name: 'John Liu', avatar: null, masteredCount: 128 },
-  { id: 4, name: 'Emily Zhang', avatar: null, masteredCount: 115 },
-  { id: 5, name: 'Michael Li', avatar: null, masteredCount: 98 },
-];
-
 // 图标组件
 const IconBook = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
@@ -721,6 +712,9 @@ function App() {
   const [isSavingVersionSettings, setIsSavingVersionSettings] = useState(false);
   const [versionSettingsMessage, setVersionSettingsMessage] = useState('');
   const [leaderboardPage, setLeaderboardPage] = useState(1);
+  const [leaderboardData, setLeaderboardData] = useState([]);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
+  const [leaderboardError, setLeaderboardError] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [savedUsername, setSavedUsername] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -959,6 +953,27 @@ function App() {
 
   const loadMemorizationData = async () => {
     await loadBootstrapData();
+  };
+
+  const loadLeaderboard = async () => {
+    try {
+      setLeaderboardLoading(true);
+      setLeaderboardError('');
+      const result = await fetchApiJson('/api/leaderboard');
+      setLeaderboardData(
+        (result.leaderboard || []).map((item) => ({
+          id: item.id,
+          name: item.username || '用户',
+          avatar: item.image_url || '',
+          masteredCount: Number(item.mastered_count || 0),
+        })),
+      );
+      setLeaderboardPage(1);
+    } catch (error) {
+      setLeaderboardError(error.message || '读取排行榜失败');
+    } finally {
+      setLeaderboardLoading(false);
+    }
   };
 
   const getDefaultUsername = (email = '') => {
@@ -1280,6 +1295,11 @@ function App() {
       }
     };
   }, [avatarPreview]);
+
+  useEffect(() => {
+    if (activeTab !== 'leaderboard') return;
+    void loadLeaderboard();
+  }, [activeTab]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2184,7 +2204,7 @@ function App() {
   };
 
   // Leaderboard pagination
-  const totalLeaderboardPages = Math.ceil(leaderboardData.length / leaderboardPageSize);
+  const totalLeaderboardPages = Math.max(1, Math.ceil(leaderboardData.length / leaderboardPageSize));
   const paginatedLeaderboard = leaderboardData.slice(
     (leaderboardPage - 1) * leaderboardPageSize,
     leaderboardPage * leaderboardPageSize
@@ -3593,96 +3613,144 @@ function App() {
 
           {activeTab === 'leaderboard' && (
             <div className="space-y-6 max-w-2xl mx-auto pt-4">
-              {/* Top 3 Podium */}
-              <div className="flex justify-center items-end space-x-4 mb-8 px-4">
-                {/* 2nd Place */}
-                <div className="flex flex-col items-center">
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold mb-2 shadow-lg border-4" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}>
-                    {leaderboardData[1]?.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="w-20 h-24 rounded-t-xl shadow-md flex flex-col items-center justify-end pb-2" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff' }}>
-                    <span className="text-2xl font-bold text-gray-400">2</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-300 text-center px-1 truncate w-full">{leaderboardData[1]?.name}</span>
-                  </div>
+              {leaderboardLoading ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  正在加载排行榜...
                 </div>
-
-                {/* 1st Place */}
-                <div className="flex flex-col items-center -mt-4">
-                  <div className="text-4xl mb-1">👑</div>
-                  <div className="w-20 h-20 rounded-full bg-gradient-to-br from-yellow-300 to-yellow-500 flex items-center justify-center text-2xl font-bold mb-2 shadow-xl border-4 border-yellow-200">
-                    {leaderboardData[0]?.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="w-24 h-32 rounded-t-xl bg-gradient-to-b from-yellow-100 to-yellow-200 dark:from-yellow-900/40 dark:to-yellow-800/30 shadow-lg flex flex-col items-center justify-end pb-3">
-                    <span className="text-3xl font-bold text-yellow-600 dark:text-yellow-400">{leaderboardData[0]?.masteredCount}</span>
-                    <span className="text-xs text-gray-600 dark:text-gray-300 text-center px-1 truncate w-full">{leaderboardData[0]?.name}</span>
-                  </div>
+              ) : leaderboardError ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-red-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  {leaderboardError}
                 </div>
-
-                {/* 3rd Place */}
-                <div className="flex flex-col items-center">
-                  <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold mb-2 shadow-lg border-4 border-orange-300 dark:border-orange-500" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff' }}>
-                    {leaderboardData[2]?.name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="w-20 h-20 rounded-t-xl shadow-md flex flex-col items-center justify-end pb-2" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff' }}>
-                    <span className="text-2xl font-bold text-orange-400">3</span>
-                    <span className="text-xs text-gray-500 dark:text-gray-300 text-center px-1 truncate w-full">{leaderboardData[2]?.name}</span>
-                  </div>
+              ) : leaderboardData.length === 0 ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  暂无排行榜数据
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="flex justify-center items-end space-x-4 mb-8 px-4">
+                    {[leaderboardData[1], leaderboardData[0], leaderboardData[2]].map((item, podiumIndex) => {
+                      if (!item) return <div key={podiumIndex} className="w-20" />;
 
-              {/* List */}
-              <div className="space-y-3">
-                {paginatedLeaderboard.map((item, index) => {
-                  const actualIndex = (leaderboardPage - 1) * leaderboardPageSize + index;
-                  return (
-                    <div key={item.id} className="flex items-center space-x-4 p-4 rounded-xl shadow-md" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff' }}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
-                        actualIndex === 0 ? 'bg-yellow-400 text-white' :
-                          actualIndex === 1 ? 'bg-gray-400 text-white' :
-                            actualIndex === 2 ? 'bg-orange-400 text-white' :
-                              'text-gray-600 dark:text-gray-300'
-                      }`}
-                      style={{ backgroundColor: actualIndex < 3 ? undefined : (darkMode ? '#30363d' : '#e5e7eb') }}>
-                        {actualIndex + 1}
-                      </div>
-                      <div className="w-10 h-10 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
-                        {item.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="flex-1">
-                        <p className="font-medium">{item.name}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xl font-bold text-primary">{item.masteredCount}</p>
-                        <p className="text-xs text-gray-400 dark:text-white">节经文</p>
-                      </div>
+                      const rank = podiumIndex === 1 ? 1 : podiumIndex === 0 ? 2 : 3;
+                      const avatarSize = rank === 1 ? 'w-20 h-20 text-2xl' : 'w-16 h-16 text-xl';
+                      const standClass = rank === 1
+                        ? 'w-24 h-32 rounded-t-xl bg-gradient-to-b from-yellow-100 to-yellow-200 dark:from-yellow-900/40 dark:to-yellow-800/30 shadow-lg'
+                        : rank === 2
+                          ? 'w-20 h-24 rounded-t-xl shadow-md'
+                          : 'w-20 h-20 rounded-t-xl shadow-md';
+                      const standStyle = rank === 1
+                        ? undefined
+                        : { backgroundColor: darkMode ? '#21262d' : '#ffffff' };
+                      const rankColor = rank === 1 ? 'text-yellow-600 dark:text-yellow-400' : rank === 2 ? 'text-gray-400' : 'text-orange-400';
+                      const borderColor = rank === 1 ? 'border-yellow-200' : rank === 2 ? '' : 'border-orange-300 dark:border-orange-500';
+
+                      return (
+                        <div key={item.id} className={`flex flex-col items-center ${rank === 1 ? '-mt-4' : ''}`}>
+                          {rank === 1 && <div className="text-4xl mb-1">👑</div>}
+                          <div
+                            className={`${avatarSize} rounded-full flex items-center justify-center font-bold mb-2 shadow-lg border-4 ${rank === 1 ? 'bg-gradient-to-br from-yellow-300 to-yellow-500' : borderColor}`}
+                            style={rank === 1 ? undefined : { backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                          >
+                            {item.avatar ? (
+                              <img
+                                src={item.avatar}
+                                alt={item.name}
+                                className="w-full h-full rounded-full object-cover"
+                                onError={(event) => {
+                                  event.currentTarget.style.display = 'none';
+                                  const fallback = event.currentTarget.nextElementSibling;
+                                  if (fallback) {
+                                    fallback.classList.remove('hidden');
+                                    fallback.classList.add('flex');
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <span className={`${item.avatar ? 'hidden' : 'flex'} w-full h-full items-center justify-center`}>
+                              {item.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className={`${standClass} flex flex-col items-center justify-end pb-2`} style={standStyle}>
+                            <span className={`text-2xl font-bold ${rankColor}`}>{rank === 1 ? item.masteredCount : rank}</span>
+                            <span className="text-xs text-gray-500 dark:text-gray-300 text-center px-1 truncate w-full">{item.name}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <div className="space-y-3">
+                    {paginatedLeaderboard.map((item, index) => {
+                      const actualIndex = (leaderboardPage - 1) * leaderboardPageSize + index;
+                      return (
+                        <div key={item.id} className="flex items-center space-x-4 p-4 rounded-xl shadow-md" style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff' }}>
+                          <div
+                            className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                              actualIndex === 0 ? 'bg-yellow-400 text-white' :
+                                actualIndex === 1 ? 'bg-gray-400 text-white' :
+                                  actualIndex === 2 ? 'bg-orange-400 text-white' :
+                                    'text-gray-600 dark:text-gray-300'
+                            }`}
+                            style={{ backgroundColor: actualIndex < 3 ? undefined : (darkMode ? '#30363d' : '#e5e7eb') }}
+                          >
+                            {actualIndex + 1}
+                          </div>
+                          <div className="w-10 h-10 rounded-full overflow-hidden bg-primary/10 text-primary flex items-center justify-center text-sm font-bold">
+                            {item.avatar ? (
+                              <img
+                                src={item.avatar}
+                                alt={item.name}
+                                className="w-full h-full object-cover"
+                                onError={(event) => {
+                                  event.currentTarget.style.display = 'none';
+                                  const fallback = event.currentTarget.nextElementSibling;
+                                  if (fallback) {
+                                    fallback.classList.remove('hidden');
+                                    fallback.classList.add('flex');
+                                  }
+                                }}
+                              />
+                            ) : null}
+                            <span className={`${item.avatar ? 'hidden' : 'flex'} w-full h-full items-center justify-center`}>
+                              {item.name.charAt(0).toUpperCase()}
+                            </span>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium truncate">{item.name}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-xl font-bold text-primary">{item.masteredCount}</p>
+                            <p className="text-xs text-gray-400 dark:text-white">节经文</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {totalLeaderboardPages > 1 && (
+                    <div className="flex justify-center items-center space-x-2 mt-6">
+                      <button
+                        onClick={() => setLeaderboardPage(p => Math.max(1, p - 1))}
+                        disabled={leaderboardPage === 1}
+                        className="p-2 rounded-lg disabled:opacity-30"
+                        style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}
+                      >
+                        <IconChevronLeft />
+                      </button>
+                      <span className="text-sm">
+                        {leaderboardPage} / {totalLeaderboardPages}
+                      </span>
+                      <button
+                        onClick={() => setLeaderboardPage(p => Math.min(totalLeaderboardPages, p + 1))}
+                        disabled={leaderboardPage === totalLeaderboardPages}
+                        className="p-2 rounded-lg disabled:opacity-30"
+                        style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}
+                      >
+                        <IconChevronRight />
+                      </button>
                     </div>
-                  );
-                })}
-              </div>
-              
-              {/* Pagination */}
-              {totalLeaderboardPages > 1 && (
-                <div className="flex justify-center items-center space-x-2 mt-6">
-                  <button
-                    onClick={() => setLeaderboardPage(p => Math.max(1, p - 1))}
-                    disabled={leaderboardPage === 1}
-                    className="p-2 rounded-lg disabled:opacity-30"
-                    style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}
-                  >
-                    <IconChevronLeft />
-                  </button>
-                  <span className="text-sm">
-                    {leaderboardPage} / {totalLeaderboardPages}
-                  </span>
-                  <button
-                    onClick={() => setLeaderboardPage(p => Math.min(totalLeaderboardPages, p + 1))}
-                    disabled={leaderboardPage === totalLeaderboardPages}
-                    className="p-2 rounded-lg disabled:opacity-30"
-                    style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}
-                  >
-                    <IconChevronRight />
-                  </button>
-                </div>
+                  )}
+                </>
               )}
             </div>
           )}
