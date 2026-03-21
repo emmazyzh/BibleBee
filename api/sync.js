@@ -227,6 +227,23 @@ async function applyAddVerseOperation(sql, user, payload) {
   return { ok: true, verseId, status: existing.status, ignored: true }
 }
 
+async function applyRemoveVerseOperation(sql, user, payload) {
+  const { verseId } = payload || {}
+
+  if (!verseId) {
+    throw new ApiError(400, 'Missing verse id')
+  }
+
+  await sql`
+    DELETE FROM user_verse
+    WHERE user_id = ${user.id}
+      AND verse_id = ${verseId}
+      AND status IN ('learning', 'relearning')
+  `
+
+  return { ok: true, verseId, removed: true }
+}
+
 export default async function handler(req, res) {
   if (handleCors(req, res)) return
 
@@ -256,6 +273,11 @@ export default async function handler(req, res) {
 
       if (operation?.type === 'addVerse') {
         results.push(await applyAddVerseOperation(sql, user, operation.payload))
+        continue
+      }
+
+      if (operation?.type === 'removeVerse') {
+        results.push(await applyRemoveVerseOperation(sql, user, operation.payload))
         continue
       }
 

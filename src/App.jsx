@@ -166,6 +166,22 @@ const IconBookmarkPlus = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/><path d="M12 7v6"/><path d="M9 10h6"/></svg>
 );
 
+const IconSparklesPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.8 4.2L18 9l-4.2 1.8L12 15l-1.8-4.2L6 9l4.2-1.8L12 3z"/><path d="M19 16v5"/><path d="M16.5 18.5h5"/></svg>
+);
+
+const IconStackPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M12 4 4 8l8 4 8-4-8-4z"/><path d="M4 12l8 4 8-4"/><path d="M4 16l8 4 8-4"/><path d="M20 4v6"/><path d="M17 7h6"/></svg>
+);
+
+const IconPlus = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+);
+
+const IconTrash = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+);
+
 const IconSync = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M8 16H3v5"/></svg>
 );
@@ -184,15 +200,15 @@ function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
   }, [verse?.id]);
 
   const textSizeClass = mobileFontLevel >= 4
-    ? 'text-base'
+    ? 'text-lg'
     : mobileFontLevel === 3
-      ? 'text-lg'
+      ? 'text-xl'
       : mobileFontLevel === 2
-        ? 'text-xl'
+        ? 'text-2xl'
         : mobileFontLevel === 1
-          ? 'text-2xl'
-          : 'text-3xl';
-  const wordSpacingClass = mobileFontLevel >= 3 ? 'mr-0.5 mb-0.5' : mobileFontLevel >= 1 ? 'mr-1 mb-1' : 'mr-2 mb-1';
+          ? 'text-3xl'
+          : 'text-4xl';
+  const wordSpacingClass = mobileFontLevel >= 3 ? 'mb-0.5' : mobileFontLevel >= 1 ? 'mb-1' : 'mb-1';
   const lineHeightClass = mobileFontLevel >= 3 ? 'leading-normal' : 'leading-relaxed';
 
   return (
@@ -201,19 +217,20 @@ function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
         {words.map((word, index) => {
           const isRevealed = revealedWords.has(index);
           return (
-            <span
-              key={index}
-              className={`inline-block ${wordSpacingClass} md:mr-3 md:mb-2 cursor-pointer hover:opacity-80`}
-              onClick={() => handleWordClick(index)}
-            >
-              {isRevealed ? (
-                <span>{word}</span>
-              ) : (
-                <>
-                  <span className="font-bold">{word.charAt(0).toUpperCase()}</span>
-                  <span className="text-gray-400">{word.slice(1).replace(/[a-zA-Z]/g, '_')}</span>
-                </>
-              )}
+            <span key={index}>
+              <span
+                className={`inline-block ${wordSpacingClass} md:mb-2 cursor-pointer hover:opacity-80`}
+                onClick={() => handleWordClick(index)}
+              >
+                {isRevealed ? (
+                  <span>{word}</span>
+                ) : (
+                  <>
+                    <span className="font-bold">{word.charAt(0).toUpperCase()}</span>
+                    <span className="text-gray-400">{word.slice(1).replace(/[a-zA-Z]/g, '_')}</span>
+                  </>
+                )}
+              </span>{' '}
             </span>
           );
         })}
@@ -306,14 +323,14 @@ function FillInMode({ verse, darkMode, mobileFontLevel = 0 }) {
   }
 
   const textSizeClass = mobileFontLevel >= 4
-    ? 'text-xs'
+    ? 'text-sm'
     : mobileFontLevel === 3
-      ? 'text-sm'
+      ? 'text-base'
       : mobileFontLevel === 2
-        ? 'text-base'
+        ? 'text-lg'
         : mobileFontLevel === 1
-          ? 'text-lg'
-          : 'text-xl';
+          ? 'text-xl'
+          : 'text-2xl';
   const lineHeightClass = mobileFontLevel >= 3 ? 'leading-normal' : 'leading-relaxed';
   const blankSizeClass = mobileFontLevel >= 3 ? 'mx-0.5 my-0.5 px-1.5 py-0.5' : mobileFontLevel >= 1 ? 'mx-0.5 my-0.5 px-2 py-0.5' : 'mx-1 my-1 px-2 py-1';
 
@@ -511,6 +528,13 @@ function applyAddVerseMutation(memorizationData, verse) {
   return { activeVerses, masteredVerses };
 }
 
+function applyRemoveVerseMutation(memorizationData, verseId) {
+  return {
+    activeVerses: (memorizationData.activeVerses || []).filter((item) => item.id !== verseId && item.verseId !== verseId),
+    masteredVerses: memorizationData.masteredVerses || [],
+  };
+}
+
 function moveActiveVerseToFront(memorizationData, verseId) {
   if (!memorizationData || !verseId) {
     return memorizationData;
@@ -656,7 +680,10 @@ function hydratePlanDetail(detail, staticData, settings) {
   }
 
   return {
-    plan: detail.plan,
+    plan: {
+      ...detail.plan,
+      selected_users: Array.isArray(detail.plan?.selected_users) ? detail.plan.selected_users : [],
+    },
     verses: (detail.verses || []).map((verse) => hydrateVerseRecord(verse, staticData, settings)),
   }
 }
@@ -871,13 +898,32 @@ function App() {
 
   const preloadPlanDetails = async (planId) => {
     if (planDetailsCacheRef.current[planId]) {
-      return planDetailsCacheRef.current[planId];
+      const cachedDetail = planDetailsCacheRef.current[planId];
+      const fallbackPlan = plans.find((plan) => plan.id === planId);
+      const fallbackSelectedUsers = normalizeSelectedUsers(fallbackPlan?.selected_users);
+
+      if ((cachedDetail.plan?.selected_users || []).length === 0 && fallbackSelectedUsers.length > 0) {
+        const nextDetail = {
+          ...cachedDetail,
+          plan: {
+            ...cachedDetail.plan,
+            selected_users: fallbackSelectedUsers,
+          },
+        };
+        planDetailsCacheRef.current[planId] = nextDetail;
+        return nextDetail;
+      }
+
+      return cachedDetail;
     }
 
     const result = await fetchApiJson(`/api/plans/${planId}`);
     const staticData = await getStaticDataSnapshot({ requireFrequent: true });
     const detail = hydratePlanDetail({
-      plan: result.plan,
+      plan: {
+        ...result.plan,
+        selected_users: normalizeSelectedUsers(result.plan?.selected_users),
+      },
       verses: result.verses || [],
     }, staticData, settings);
 
@@ -1587,7 +1633,7 @@ function App() {
     if (activeTab === 'study') return '研读';
     if (activeTab === 'plan') return '计划';
     if (activeTab === 'plan-detail') return selectedPlan?.plan_name || '经文列表';
-    if (activeTab === 'progress') return '我的';
+    if (activeTab === 'progress') return '进度';
     if (activeTab === 'settings') return '设置';
     if (activeTab === 'userinfo') return '账号管理';
     if (activeTab === 'leaderboard') return '排行榜';
@@ -1772,11 +1818,11 @@ function App() {
   };
 
   const getMobileParallelEnglishTextClass = () => {
-    if (mobileFontLevel >= 4) return 'text-base';
-    if (mobileFontLevel === 3) return 'text-lg';
-    if (mobileFontLevel === 2) return 'text-xl';
-    if (mobileFontLevel === 1) return 'text-2xl';
-    return 'text-3xl';
+    if (mobileFontLevel >= 4) return 'text-lg';
+    if (mobileFontLevel === 3) return 'text-xl';
+    if (mobileFontLevel === 2) return 'text-2xl';
+    if (mobileFontLevel === 1) return 'text-3xl';
+    return 'text-4xl';
   };
 
   const renderMobileVersePane = (verseItem, pageLabel, isCurrent = false) => (
@@ -1791,7 +1837,7 @@ function App() {
       </div>
 
       <div className="text-center mb-2 px-6">
-        <span className="inline-block px-4 py-1 rounded-full text-xs text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+        <span className="inline-block px-4 py-1 rounded-full text-[11px] text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
           {pageLabel}
         </span>
       </div>
@@ -1973,6 +2019,47 @@ function App() {
     }
   };
 
+  const handleReAddToFlashcards = async (verse) => {
+    if (!verse || !isSignedIn) return;
+
+    try {
+      const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
+      setMemorizationData(nextMemorizationData);
+      await persistUserSnapshot({ memorizationData: nextMemorizationData });
+      await queuePendingOperation({
+        type: 'addVerse',
+        payload: { verseId: verse.id || verse.verseId },
+      }, { immediate: true });
+      await loadBootstrapData(false);
+    } catch (error) {
+      setMemorizationError(error.message);
+    }
+  };
+
+  const handleRemoveFromFlashcards = async (verse) => {
+    if (!verse || !isSignedIn) return;
+
+    const confirmed = window.confirm('从闪卡中删除');
+    if (!confirmed) return;
+
+    try {
+      const verseId = verse.id || verse.verseId;
+      const nextMemorizationData = applyRemoveVerseMutation(memorizationData, verseId);
+      setMemorizationData(nextMemorizationData);
+      await persistUserSnapshot({ memorizationData: nextMemorizationData });
+      await queuePendingOperation({
+        type: 'removeVerse',
+        payload: { verseId },
+      }, { immediate: true });
+      if ((currentVerse?.id || currentVerse?.verseId) === verseId) {
+        setCurrentVerseIndex(0);
+      }
+      await loadBootstrapData(false);
+    } catch (error) {
+      setMemorizationError(error.message);
+    }
+  };
+
   const selectCollection = (collection) => {
     setCurrentVerses(collection.verses.slice(0, GUEST_VERSES_PER_GROUP));
     setMasteredVerses([]);
@@ -2144,7 +2231,7 @@ function App() {
               <div className="relative w-full">
                 <input
                   type="text"
-                  placeholder="搜索我要背的经文，例如：福音"
+                  placeholder="搜索我要背的经文"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
@@ -2163,11 +2250,19 @@ function App() {
             <div className="flex items-center space-x-2 md:space-x-4 shrink-0">
               <button
                 onClick={() => setActiveTab('leaderboard')}
-                className="p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#30363d]"
+                className="group relative p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#30363d]"
                 style={{ color: darkMode ? '#facc15' : '#eab308' }}
-                title="排行榜"
               >
                 <IconMedal />
+                <span
+                  className="pointer-events-none absolute left-full top-full z-10 ml-2 mt-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                  style={{
+                    backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                    color: '#f8fafc',
+                  }}
+                >
+                  查看排行榜
+                </span>
               </button>
               <button onClick={toggleDarkMode} className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`} style={{ color: darkMode ? '#d1d5db' : '#374151' }}>
                 {darkMode ? <IconSun /> : <IconMoon />}
@@ -2381,10 +2476,10 @@ function App() {
             <nav className="flex-1 p-4">
               <ul className="space-y-2">
                 {[
-                  { id: 'memorization', label: '首页', icon: IconBookOpen },
+                  { id: 'memorization', label: '首页-闪卡', icon: IconBookOpen },
                   { id: 'study', label: '研读', icon: IconStudy },
                   { id: 'plan', label: '计划', icon: IconBarChart },
-                  { id: 'progress', label: '我的', icon: IconUser },
+                  { id: 'progress', label: '进度', icon: IconUser },
                   { id: 'settings', label: '设置', icon: IconSettings },
                 ].map(item => (
                   <li key={item.id}>
@@ -2512,7 +2607,7 @@ function App() {
                     <IconSync />
                     {!manualSyncing && (
                       <span
-                        className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+                        className="pointer-events-none absolute top-full left-0 mt-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100 md:left-auto md:right-full md:top-full md:mr-2"
                         style={{
                           backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
                           color: '#f8fafc',
@@ -2634,7 +2729,7 @@ function App() {
                         </div>
 
                         <div className="text-center mb-2 md:mb-4">
-                          <span className="inline-block px-4 py-1 rounded-full text-xs md:text-sm text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                          <span className="inline-block px-4 py-1 rounded-full text-[11px] md:text-xs text-gray-700 dark:text-gray-200" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
                             {currentVerseIndex + 1} / {currentVerseList.length}
                           </span>
                         </div>
@@ -2893,12 +2988,11 @@ function App() {
                                     {(plan.selected_users || []).slice(0, 5).map((selectedUser, avatarIndex) => (
                                       <div
                                         key={selectedUser.id}
-                                        className={`w-8 h-8 rounded-full overflow-hidden border-2 ${avatarIndex === 0 ? '' : '-ml-2'}`}
+                                        className={`group relative w-8 h-8 rounded-full overflow-hidden border-2 ${avatarIndex === 0 ? '' : '-ml-2'}`}
                                         style={{
                                           backgroundColor: darkMode ? '#21262d' : '#f3f4f6',
                                           borderColor: darkMode ? '#161b22' : '#ffffff',
                                         }}
-                                        title={selectedUser.username || '用户'}
                                       >
                                         {selectedUser.image_url ? (
                                           <>
@@ -2920,10 +3014,19 @@ function App() {
                                             </div>
                                           </>
                                         ) : (
-                                          <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-primary">
-                                            {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
-                                          </div>
+                                            <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-primary">
+                                              {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
+                                            </div>
                                         )}
+                                        <span
+                                          className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                          style={{
+                                            backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                                            color: '#f8fafc',
+                                          }}
+                                        >
+                                          {selectedUser.username || '用户'}
+                                        </span>
                                       </div>
                                     ))}
                                     {(plan.selected_users || []).length > 5 && (
@@ -2940,20 +3043,36 @@ function App() {
                                 <button
                                   type="button"
                                   onClick={() => loadPlanDetails(plan.id)}
-                                  className="h-9 px-1 text-gray-500 hover:text-primary transition-colors"
-                                  title="查看经文列表"
+                                  className="group relative inline-flex h-9 px-1 items-center justify-center text-gray-500 hover:text-primary transition-colors"
                                   aria-label="查看经文列表"
                                 >
                                   <IconList />
+                                  <span
+                                    className="pointer-events-none absolute bottom-full right-0 z-10 mb-2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                                      color: '#f8fafc',
+                                    }}
+                                  >
+                                    查看经文列表
+                                  </span>
                                 </button>
                                 <button
                                   type="button"
                                   onClick={() => openSelectPlanModal(plan)}
-                                  className="h-9 px-1 text-gray-500 hover:text-primary transition-colors"
-                                  title="选择此列表"
+                                  className="group relative inline-flex h-9 px-1 items-center justify-center text-gray-500 hover:text-primary transition-colors"
                                   aria-label="选择此列表"
                                 >
-                                  <IconBookmarkPlus />
+                                  <IconStackPlus />
+                                  <span
+                                    className="pointer-events-none absolute bottom-full right-0 z-10 mb-2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                                      color: '#f8fafc',
+                                    }}
+                                  >
+                                    选择此列表
+                                  </span>
                                 </button>
                               </div>
                             </div>
@@ -2983,21 +3102,86 @@ function App() {
                 <div className="text-center text-red-500">{selectedPlanError}</div>
               ) : selectedPlan && (
                 <>
+                  {(() => {
+                    const displaySelectedUsers = (selectedPlan.selected_users || []).length > 0
+                      ? selectedPlan.selected_users
+                      : normalizeSelectedUsers(plans.find((plan) => plan.id === selectedPlan.id)?.selected_users);
+
+                    return (
                   <div className="rounded-2xl shadow-sm p-6" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
                     <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                       <div>
                         <h2 className="text-2xl font-bold">{selectedPlan.plan_name}</h2>
                         <p className="text-gray-500 dark:text-gray-300 mt-2">{selectedPlan.description}</p>
+                        <div className="mt-4 flex items-center">
+                          {displaySelectedUsers.length > 0 ? (
+                            <>
+                              {displaySelectedUsers.slice(0, 8).map((selectedUser, avatarIndex) => (
+                                <div
+                                  key={selectedUser.id}
+                                  className={`group relative w-8 h-8 rounded-full overflow-hidden border-2 ${avatarIndex === 0 ? '' : '-ml-2'}`}
+                                  style={{
+                                    backgroundColor: darkMode ? '#21262d' : '#f3f4f6',
+                                    borderColor: darkMode ? '#161b22' : '#ffffff',
+                                  }}
+                                >
+                                  {selectedUser.image_url ? (
+                                    <>
+                                      <img
+                                        src={selectedUser.image_url}
+                                        alt={selectedUser.username || '用户头像'}
+                                        className="w-full h-full object-cover"
+                                        onError={(event) => {
+                                          event.currentTarget.style.display = 'none';
+                                          const fallback = event.currentTarget.nextElementSibling;
+                                          if (fallback) {
+                                            fallback.classList.remove('hidden');
+                                            fallback.classList.add('flex');
+                                          }
+                                        }}
+                                      />
+                                      <div className="hidden w-full h-full items-center justify-center text-xs font-semibold text-primary">
+                                        {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <div className="w-full h-full flex items-center justify-center text-xs font-semibold text-primary">
+                                      {(selectedUser.username || 'U').slice(0, 1).toUpperCase()}
+                                    </div>
+                                  )}
+                                  <span
+                                    className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                                      color: '#f8fafc',
+                                    }}
+                                  >
+                                    {selectedUser.username || '用户'}
+                                  </span>
+                                </div>
+                              ))}
+                              {displaySelectedUsers.length > 8 && (
+                                <span className="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                                  +{displaySelectedUsers.length - 8}
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span className="text-xs text-gray-400">暂无用户加入</span>
+                          )}
+                        </div>
                       </div>
                       <button
                         type="button"
                         onClick={() => openSelectPlanModal(selectedPlan)}
                         className="px-6 py-3 rounded-xl bg-primary text-white font-medium hover:bg-blue-600 transition-colors"
                       >
-                        添加到我的背诵
+                        添加到闪卡
                       </button>
                     </div>
                   </div>
+                    );
+                  })()}
 
                   <div className="space-y-3">
                     {selectedPlanVerses.map((verse) => (
@@ -3006,7 +3190,10 @@ function App() {
                         className="rounded-2xl shadow-sm p-5"
                         style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
                       >
-                        <p className="text-sm text-gray-400 mb-2">{verse.orderIndex}. {verse.referenceCN}</p>
+                        <p className="text-sm text-gray-400 mb-2">
+                          {verse.orderIndex}. {verse.referenceCN}
+                          <span className="ml-1">({verse.reference})</span>
+                        </p>
                         <p className="text-base leading-7 mb-2">{verse.chinese}</p>
                         <p className="text-sm italic text-gray-500">{verse.english}</p>
                       </div>
@@ -3193,15 +3380,23 @@ function App() {
                         <button
                           type="button"
                           onClick={() => setActiveTab('leaderboard')}
-                          className="inline-flex items-center justify-center rounded-full p-2 transition-colors"
+                          className="group relative inline-flex items-center justify-center rounded-full p-2 transition-colors"
                           style={{
                             backgroundColor: darkMode ? 'rgba(250,204,21,0.12)' : 'rgba(250,204,21,0.14)',
                             color: darkMode ? '#facc15' : '#ca8a04',
                           }}
-                          title="排行榜"
                           aria-label="排行榜"
                         >
                           <IconMedal />
+                          <span
+                            className="pointer-events-none absolute right-full top-1/2 z-10 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                            style={{
+                              backgroundColor: darkMode ? 'rgba(15,23,42,0.88)' : 'rgba(15,23,42,0.82)',
+                              color: '#f8fafc',
+                            }}
+                          >
+                            查看排行榜
+                          </span>
                         </button>
                       </div>
                     </div>
@@ -3270,24 +3465,48 @@ function App() {
                             >
                               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                                 <div className="min-w-0">
-                                  <p className="font-bold text-primary text-lg">{verse?.referenceCN}</p>
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-primary text-lg">{verse?.referenceCN}</p>
+                                    <span
+                                      className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                                      style={{
+                                        backgroundColor: darkMode ? 'rgba(22,163,74,0.22)' : '#dcfce7',
+                                        color: darkMode ? '#86efac' : '#15803d',
+                                      }}
+                                    >
+                                      已掌握
+                                    </span>
+                                  </div>
                                   <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{verse?.reference}</p>
                                   <p className="text-sm mt-3 leading-7" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>{verse?.chinese}</p>
                                   <p className="text-sm mt-2 italic leading-7" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse?.english}</p>
                                 </div>
-                                <div className="shrink-0 text-right">
-                                  <span
-                                    className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
-                                    style={{
-                                      backgroundColor: darkMode ? 'rgba(22,163,74,0.22)' : '#dcfce7',
-                                      color: darkMode ? '#86efac' : '#15803d',
-                                    }}
-                                  >
-                                    已掌握
-                                  </span>
-                                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-300">
-                                    {isSignedIn ? new Date(mv.masteryDate || mv.modifiedAt).toLocaleDateString('zh-CN') : mv.date}
-                                  </p>
+                                <div className="shrink-0 text-right flex flex-col items-end justify-between self-stretch">
+                                  <div></div>
+                                  {isSignedIn && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleReAddToFlashcards(verse)}
+                                      className="group relative mt-3 inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+                                      style={{
+                                        backgroundColor: darkMode ? 'rgba(59,130,246,0.12)' : 'rgba(219,234,254,0.7)',
+                                        color: darkMode ? '#93c5fd' : '#2563eb',
+                                        border: `1px solid ${darkMode ? 'rgba(59,130,246,0.18)' : 'rgba(147,197,253,0.8)'}`,
+                                      }}
+                                      aria-label="重新加入闪卡"
+                                    >
+                                      <IconPlus />
+                                      <span
+                                        className="pointer-events-none absolute right-full top-1/2 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                        style={{
+                                          backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
+                                          color: '#f8fafc',
+                                        }}
+                                      >
+                                        重新加入闪卡
+                                      </span>
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             </div>
@@ -3312,23 +3531,51 @@ function App() {
                           >
                             <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
                               <div className="min-w-0">
-                                <p className="font-bold text-primary text-lg">{verse.referenceCN}</p>
+                                <div className="flex items-center gap-2">
+                                  <p className="font-bold text-primary text-lg">{verse.referenceCN}</p>
+                                  <span
+                                    className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                                    style={{
+                                      backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
+                                      color: darkMode ? '#93c5fd' : '#1d4ed8',
+                                    }}
+                                  >
+                                    学习中
+                                  </span>
+                                </div>
                                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{verse.reference}</p>
                                 <p className="text-sm mt-3 leading-7" style={{ color: darkMode ? '#ffffff' : '#4b5563' }}>{verse.chinese}</p>
                                 <p className="text-sm mt-2 italic leading-7" style={{ color: darkMode ? '#9ca3af' : '#9ca3af' }}>{verse.english}</p>
                               </div>
                               <div className="shrink-0 text-right">
-                                <span
-                                  className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
-                                  style={{
-                                    backgroundColor: darkMode ? 'rgba(59,130,246,0.18)' : '#dbeafe',
-                                    color: darkMode ? '#93c5fd' : '#1d4ed8',
-                                  }}
-                                >
-                                  {verse.status === 'relearning' ? '重新学习' : '学习中'}
-                                </span>
+                                {isSignedIn && (
+                                  <div className="mb-3 flex justify-end">
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveFromFlashcards(verse)}
+                                      className="group relative inline-flex h-8 w-8 items-center justify-center rounded-full transition-colors"
+                                      style={{
+                                        backgroundColor: darkMode ? 'rgba(148,163,184,0.12)' : 'rgba(241,245,249,0.9)',
+                                        color: darkMode ? '#cbd5e1' : '#64748b',
+                                        border: `1px solid ${darkMode ? 'rgba(148,163,184,0.18)' : 'rgba(203,213,225,0.9)'}`,
+                                      }}
+                                      aria-label="从闪卡中删除"
+                                    >
+                                      <IconTrash />
+                                      <span
+                                        className="pointer-events-none absolute right-full top-1/2 mr-2 -translate-y-1/2 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-75 group-hover:opacity-100"
+                                        style={{
+                                          backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
+                                          color: '#f8fafc',
+                                        }}
+                                      >
+                                        从闪卡中删除
+                                      </span>
+                                    </button>
+                                  </div>
+                                )}
                                 {verse.nextReviewDate && (
-                                  <p className="mt-3 text-xs text-gray-500 dark:text-gray-300">
+                                  <p className="text-xs text-gray-500 dark:text-gray-300">
                                     下次复习 {new Date(verse.nextReviewDate).toLocaleDateString('zh-CN')}
                                   </p>
                                 )}
@@ -3649,7 +3896,7 @@ function App() {
       {showSelectPlanModal && selectedPlan && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
           <div className="rounded-2xl shadow-xl p-6 max-w-md w-full" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-            <h3 className="text-xl font-bold mb-3">开始背【{selectedPlan.plan_name}】</h3>
+            <h3 className="text-xl font-bold mb-3">将【{selectedPlan.plan_name}】添加到闪卡</h3>
             <label className="flex items-start gap-3 py-4">
               <input
                 type="checkbox"
@@ -3657,7 +3904,7 @@ function App() {
                 onChange={(event) => setClearCurrentPlanSelection(event.target.checked)}
                 className="mt-1"
               />
-              <span>清空当前背诵</span>
+              <span>清空当前闪卡列表</span>
             </label>
             {selectedPlanError && (
               <p className="text-sm text-red-500 mb-4">{selectedPlanError}</p>
