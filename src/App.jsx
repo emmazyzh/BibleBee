@@ -715,6 +715,7 @@ function App() {
   const [leaderboardData, setLeaderboardData] = useState([]);
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState('');
+  const [guestRainbowVerses, setGuestRainbowVerses] = useState([]);
   const [usernameInput, setUsernameInput] = useState('');
   const [savedUsername, setSavedUsername] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -973,6 +974,41 @@ function App() {
       setLeaderboardError(error.message || '读取排行榜失败');
     } finally {
       setLeaderboardLoading(false);
+    }
+  };
+
+  const loadPublicPlans = async () => {
+    try {
+      setPlansLoading(true);
+      setPlansError('');
+      await Promise.all([
+        ensureStaticJsonCached('frequent'),
+        ensureStaticJsonCached('combined'),
+      ]);
+      const result = await fetchApiJson('/api/plans');
+      const nextPlans = (result.plans || []).map((plan) => ({
+        ...plan,
+        selected_users: normalizeSelectedUsers(plan.selected_users),
+      }));
+      setPlans(nextPlans);
+
+      const rainbowPlanId = 'plan_rainbow_memorization';
+      const rainbowDetailResult = await fetchApiJson(`/api/plans/${rainbowPlanId}`);
+      const staticData = await getStaticDataSnapshot({ requireFrequent: true, requireCombined: true });
+      const rainbowDetail = hydratePlanDetail({
+        plan: {
+          ...rainbowDetailResult.plan,
+          selected_users: normalizeSelectedUsers(rainbowDetailResult.plan?.selected_users),
+        },
+        verses: rainbowDetailResult.verses || [],
+      }, staticData, settings);
+
+      setGuestRainbowVerses(rainbowDetail.verses || []);
+    } catch (error) {
+      setPlansError(error.message || '读取计划失败');
+      setGuestRainbowVerses([]);
+    } finally {
+      setPlansLoading(false);
     }
   };
 
@@ -1392,9 +1428,12 @@ function App() {
     if (!isUserLoaded) return;
 
     if (!isSignedIn) {
-      setPlans([]);
+      setMasteredVerses([]);
+      setSkippedVerses([]);
+      setCurrentVerseIndex(0);
       setSelectedPlan(null);
       setSelectedPlanVerses([]);
+      setGuestRainbowVerses([]);
       setMemorizationData({ activeVerses: [], masteredVerses: [] });
       planDetailsCacheRef.current = {};
       cacheSnapshotRef.current = { plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } };
@@ -1402,6 +1441,7 @@ function App() {
         clearTimeout(syncTimeoutRef.current);
         syncTimeoutRef.current = null;
       }
+      void loadPublicPlans();
       return;
     }
 
@@ -1574,12 +1614,26 @@ function App() {
   };
 
   const handleOpenAccountPage = () => {
+    if (!isSignedIn) {
+      setActiveTab('auth');
+      setSidebarOpen(false);
+      setAccountMenuOpen(false);
+      return;
+    }
     setActiveTab('userinfo');
     setSidebarOpen(false);
     setAccountMenuOpen(false);
   };
 
   const getCurrentVerseList = () => {
+    if (!isSignedIn) {
+      return guestRainbowVerses.filter((verse) =>
+        verse &&
+        !masteredVerses.some((mv) => mv.id === verse.id) &&
+        !skippedVerses.includes(verse.id)
+      );
+    }
+
     return currentVerses
       .map(id => allVerses.find(v => v.id === id))
       .filter(v => v && !masteredVerses.some(mv => mv.id === v.id));
@@ -1589,7 +1643,7 @@ function App() {
   const shouldShowGuestMemorization = isUserLoaded && !isSignedIn;
   const currentVerseList = shouldShowGuestMemorization ? guestCurrentVerseList : memorizationData.activeVerses;
   const currentVerse = currentVerseList[currentVerseIndex];
-  const showMemorizationLoading = !isUserLoaded || (isSignedIn && memorizationLoading);
+  const showMemorizationLoading = !isUserLoaded || (!isSignedIn && (plansLoading || ((!plansError) && (!staticDataRef.current.frequent || !staticDataRef.current.combined || guestRainbowVerses.length === 0)))) || (isSignedIn && memorizationLoading);
   const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
   const showMobileSearchLanding = isMobileLayout && activeTab === 'search' && !showSearchResults;
   const showMobileSearchResults = isMobileLayout && activeTab === 'search' && showSearchResults;
@@ -1602,7 +1656,7 @@ function App() {
   const showMobileMenuOnlyHeader = isMobileLayout && ['study', 'progress', 'settings'].includes(activeTab);
   const showMobileBackOnlyHeader = isMobileLayout && (
     showMobileSearchResults ||
-    ['userinfo', 'leaderboard', 'plan-detail'].includes(activeTab)
+    ['userinfo', 'leaderboard', 'plan-detail', 'auth'].includes(activeTab)
   );
   const showMobileCompactHeader = isMobileLayout && !showMobileSearchLanding && !showMobileBackOnlyHeader && !showMobileMenuOnlyHeader;
   const hasMultipleCurrentVerses = currentVerseList.length > 1;
@@ -1657,6 +1711,7 @@ function App() {
     if (activeTab === 'settings') return '设置';
     if (activeTab === 'userinfo') return '账号管理';
     if (activeTab === 'leaderboard') return '排行榜';
+    if (activeTab === 'auth') return '登录';
     return '';
   };
 
@@ -1671,8 +1726,33 @@ function App() {
       return;
     }
 
+    if (activeTab === 'auth') {
+      setActiveTab('memorization');
+      return;
+    }
+
     setActiveTab('memorization');
   };
+
+  const openLeaderboard = () => {
+    if (!isSignedIn) {
+      setActiveTab('auth');
+      return;
+    }
+    setActiveTab('leaderboard');
+  };
+
+  const handleSidebarNavigation = (tabId) => {
+    if (!isSignedIn && (tabId === 'progress' || tabId === 'settings')) {
+      setSidebarOpen(false);
+      setActiveTab('auth');
+      return;
+    }
+
+    setActiveTab(tabId);
+    setSidebarOpen(false);
+  };
+
   const openMobileSearch = () => {
     setSidebarOpen(false);
     setActiveTab('search');
@@ -1921,14 +2001,8 @@ function App() {
     const today = new Date().toISOString().split('T')[0];
     setMasteredVerses([...masteredVerses, { id: currentVerse.id, date: today, reviewCount: 1 }]);
     const remainingVerses = currentVerseList.filter(v => v.id !== currentVerse.id);
-    if (remainingVerses.length === 0) {
-      setTimeout(() => {
-        setShowNextGroupModal(true);
-      }, 300);
-    } else {
-      if (currentVerseIndex >= remainingVerses.length) {
-        setCurrentVerseIndex(0);
-      }
+    if (currentVerseIndex >= remainingVerses.length) {
+      setCurrentVerseIndex(0);
     }
   };
 
@@ -1951,14 +2025,8 @@ function App() {
 
     setSkippedVerses([...skippedVerses, currentVerse.id]);
     const remainingVerses = currentVerseList.filter(v => v.id !== currentVerse.id);
-    if (remainingVerses.length === 0) {
-      setTimeout(() => {
-        setShowNextGroupModal(true);
-      }, 300);
-    } else {
-      if (currentVerseIndex >= remainingVerses.length) {
-        setCurrentVerseIndex(0);
-      }
+    if (currentVerseIndex >= remainingVerses.length) {
+      setCurrentVerseIndex(0);
     }
   };
 
@@ -1999,12 +2067,7 @@ function App() {
     if (!verse) return;
 
     if (!isSignedIn) {
-      if (!currentVerses.includes(verse.id)) {
-        setCurrentVerses([...currentVerses, verse.id]);
-      }
-      setActiveTab('memorization');
-      setShowSearchResults(false);
-      setSearchQuery('');
+      setActiveTab('auth');
       return;
     }
 
@@ -2197,6 +2260,10 @@ function App() {
   };
 
   const openSelectPlanModal = (plan) => {
+    if (!isSignedIn) {
+      setActiveTab('auth');
+      return;
+    }
     setSelectedPlan(plan);
     setSelectedPlanError('');
     setClearCurrentPlanSelection(false);
@@ -2269,7 +2336,7 @@ function App() {
 
             <div className="flex items-center space-x-2 md:space-x-4 shrink-0">
               <button
-                onClick={() => setActiveTab('leaderboard')}
+                onClick={openLeaderboard}
                 className="group relative p-2 rounded-full hover:bg-gray-100 dark:hover:bg-[#30363d]"
                 style={{ color: darkMode ? '#facc15' : '#eab308' }}
               >
@@ -2446,7 +2513,7 @@ function App() {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => {
-                      setActiveTab('leaderboard');
+                      openLeaderboard();
                       setSidebarOpen(false);
                     }}
                     className={`p-2 rounded-full ${darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
@@ -2504,7 +2571,7 @@ function App() {
                 ].map(item => (
                   <li key={item.id}>
                     <button
-                      onClick={() => { setActiveTab(item.id); setSidebarOpen(false); }}
+                      onClick={() => handleSidebarNavigation(item.id)}
                       className={`w-full flex items-center space-x-3 px-3 py-2 rounded-md transition-colors ${activeTab === item.id ? 'bg-blue-50 text-primary dark:bg-blue-900/30' : darkMode ? 'hover:bg-[#30363d]' : 'hover:bg-gray-100'}`}
                       style={{ color: activeTab === item.id ? '' : (darkMode ? '#d1d5db' : '#374151') }}
                     >
@@ -2659,7 +2726,7 @@ function App() {
                     <div className="text-6xl mb-4">🎉</div>
                     <h3 className="text-2xl font-bold mb-2">{shouldShowGuestMemorization ? '恭喜！' : '当前没有待背诵经文'}</h3>
                     <p className="text-gray-500 mb-6">
-                      {shouldShowGuestMemorization ? '你已经完成了当前组的所有经文' : '去计划页选择一个经文列表开始背诵。'}
+                      {shouldShowGuestMemorization ? '你已经完成了访客模式的彩虹背诵经文。' : '去计划页选择一个经文列表开始背诵。'}
                     </p>
                     {!shouldShowGuestMemorization ? (
                       <button
@@ -2669,12 +2736,25 @@ function App() {
                         去选择计划
                       </button>
                     ) : (
-                      <button
-                        onClick={() => setShowNextGroupModal(true)}
-                        className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
-                      >
-                        开始下一组
-                      </button>
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={() => {
+                            setMasteredVerses([]);
+                            setSkippedVerses([]);
+                            setCurrentVerseIndex(0);
+                          }}
+                          className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
+                        >
+                          重新开始
+                        </button>
+                        <button
+                          onClick={() => openSignIn()}
+                          className="px-6 py-3 rounded-full font-medium border transition-colors"
+                          style={{ borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                        >
+                          登录同步
+                        </button>
+                      </div>
                     )}
                   </div>
                 ) : (
@@ -2934,6 +3014,29 @@ function App() {
             </div>
           )}
 
+          {activeTab === 'auth' && (
+            <div className="max-w-xl mx-auto pt-6">
+              <div
+                className="rounded-[2rem] border px-8 py-10 text-center shadow-sm"
+                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+              >
+                <p className="text-3xl font-bold" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                  欢迎使用BibleBee
+                </p>
+                <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
+                  我将你的话藏在心里...
+                </p>
+                <button
+                  type="button"
+                  onClick={() => openSignIn()}
+                  className="mt-8 px-8 py-3 rounded-full bg-primary text-white font-medium hover:bg-blue-600 transition-colors"
+                >
+                  登录 / 注册
+                </button>
+              </div>
+            </div>
+          )}
+
           {activeTab === 'study' && (
             <div className="space-y-6 pt-4 md:pt-6 max-w-3xl mx-auto">
               <div className="flex flex-col md:flex-row md:items-center justify-between space-y-4 md:space-y-0">
@@ -2960,17 +3063,7 @@ function App() {
 
           {activeTab === 'plan' && (
             <div className="space-y-6 max-w-3xl mx-auto pt-4 md:pt-6">
-              {!isSignedIn ? (
-                <div className="rounded-2xl shadow-sm p-8 text-center" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                  <p className="text-gray-500 dark:text-gray-400 mb-6">登录后可从数据库读取计划并同步背诵进度。</p>
-                  <button
-                    onClick={() => openSignUp()}
-                    className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
-                  >
-                    登录 / 注册
-                  </button>
-                </div>
-              ) : plansLoading ? (
+              {plansLoading ? (
                 <div className="text-center text-gray-500">正在加载计划...</div>
               ) : plansError ? (
                 <div className="text-center text-red-500">{plansError}</div>
@@ -3081,7 +3174,7 @@ function App() {
                                   type="button"
                                   onClick={() => openSelectPlanModal(plan)}
                                   className="group relative inline-flex h-9 px-1 items-center justify-center text-gray-500 hover:text-primary transition-colors"
-                                  aria-label="选择此列表"
+                                  aria-label="全部添加到闪卡"
                                 >
                                   <IconStackPlus />
                                   <span
@@ -3091,7 +3184,7 @@ function App() {
                                       color: '#f8fafc',
                                     }}
                                   >
-                                    选择此列表
+                                    全部添加到闪卡
                                   </span>
                                 </button>
                               </div>
@@ -3386,7 +3479,7 @@ function App() {
                           <Show when="signed-out">访客模式</Show>
                         </h2>
                         <p className="mt-2 max-w-sm text-sm md:text-base text-gray-500 dark:text-gray-300 hidden md:block">
-                          <Show when="signed-in">继续保持背诵节奏！</Show>
+                          <Show when="signed-in">我将你的话藏在心里！</Show>
                           <Show when="signed-out">登录后可以同步你的背诵进度与个人数据。</Show>
                         </p>
                       </div>
@@ -3399,7 +3492,7 @@ function App() {
                       <div className="mt-3 flex md:justify-end">
                         <button
                           type="button"
-                          onClick={() => setActiveTab('leaderboard')}
+                          onClick={openLeaderboard}
                           className="group relative inline-flex items-center justify-center rounded-full p-2 transition-colors"
                           style={{
                             backgroundColor: darkMode ? 'rgba(250,204,21,0.12)' : 'rgba(250,204,21,0.14)',
@@ -3447,7 +3540,7 @@ function App() {
                   <div>
                     <p className="text-xs uppercase tracking-[0.22em] text-gray-400">Library</p>
                     <h3 className="mt-2 text-2xl font-bold">我的经文库</h3>
-                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 hidden md:block">天地要废去，我的话却不能废去。</p>
+                    <p className="mt-2 text-sm text-gray-500 dark:text-gray-400 hidden md:block">但你所学习的，所确信的，要存在心里……并且知道你是从小明白圣经。</p>
                   </div>
                   <div className="inline-flex rounded-2xl p-1" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
                     <button

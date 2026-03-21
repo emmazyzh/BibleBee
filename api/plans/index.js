@@ -1,5 +1,5 @@
 import { getSql } from '../../server/lib/db.js'
-import { getCurrentDbUser } from '../../server/lib/current-user.js'
+import { getOptionalCurrentDbUser } from '../../server/lib/current-user.js'
 import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
 
 export default async function handler(req, res) {
@@ -7,7 +7,7 @@ export default async function handler(req, res) {
 
   try {
     const bindings = getBindings()
-    const user = await getCurrentDbUser(await toWebRequest(req), bindings)
+    const user = await getOptionalCurrentDbUser(await toWebRequest(req), bindings)
     const sql = getSql(bindings)
     const plans = await sql`
       SELECT
@@ -36,7 +36,7 @@ export default async function handler(req, res) {
         ) AS selected_users
       FROM plan p
       LEFT JOIN plan_verse pv ON pv.plan_id = p.id
-      LEFT JOIN user_plan up ON up.plan_id = p.id AND up.user_id = ${user.id}
+      LEFT JOIN user_plan up ON up.plan_id = p.id AND up.user_id = ${user?.id || null}
       GROUP BY p.id, p.plan_name, p.description, p.created_at
       ORDER BY p.created_at ASC
     `

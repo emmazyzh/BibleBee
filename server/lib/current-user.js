@@ -50,3 +50,13 @@ export async function getCurrentDbUser(request, bindings) {
 
   return user
 }
+
+export async function getOptionalCurrentDbUser(request, bindings) {
+  const auth = await authenticateRequest(request, bindings)
+
+  if (!auth.isAuthenticated || !auth.userId) {
+    return null
+  }
+
+  return getCurrentDbUser(request, bindings)
+}
