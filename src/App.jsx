@@ -1785,6 +1785,7 @@ function App() {
   const studyVerse = currentVerse || studyFallbackVerse;
   const showMemorizationLoading = !isUserLoaded || (!isSignedIn && (plansLoading || ((!plansError) && (!staticDataRef.current.frequent || !staticDataRef.current.combined || guestRainbowVerses.length === 0)))) || (isSignedIn && memorizationLoading);
   const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
+  const showGuestEmptyState = isUserLoaded && !isSignedIn && !plansLoading && currentVerseList.length === 0;
   const showMobileSearchLanding = isMobileLayout && activeTab === 'search' && !showSearchResults;
   const showMobileSearchResults = isMobileLayout && activeTab === 'search' && showSearchResults;
   const filteredSearchResults = searchResults.filter((verse) => {
@@ -3026,6 +3027,20 @@ function App() {
                     className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
                   >
                     去选择计划
+                  </button>
+                </div>
+              ) : showGuestEmptyState ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
+                  <div className="text-5xl mb-4">📖</div>
+                  <h3 className="text-2xl font-bold mb-2">访客经文暂未加载完成</h3>
+                  <p className={`mb-6 ${plansError ? 'text-red-500' : 'text-gray-500'}`}>
+                    {plansError || '请刷新页面后重试。'}
+                  </p>
+                  <button
+                    onClick={() => void loadPublicPlans()}
+                    className="px-6 py-3 bg-primary text-white rounded-full font-medium hover:bg-blue-600"
+                  >
+                    重新加载
                   </button>
                 </div>
               ) : (
