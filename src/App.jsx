@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Show, useAuth, useClerk, useUser } from '@clerk/react'
+import { Show, useAuth, useClerk, useSignIn, useSignUp, useUser } from '@clerk/react'
 import './App.css'
 import {
   addPendingOperation,
+  clearUserCache,
   clearPendingOperations,
   getPendingOperations,
   getStaticJson,
@@ -171,6 +172,14 @@ const IconPlus = () => (
 
 const IconTrash = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>
+);
+
+const IconEye = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.06 12.34a1 1 0 0 1 0-.68C3.35 8.2 6.62 6 12 6s8.65 2.2 9.94 5.66a1 1 0 0 1 0 .68C20.65 15.8 17.38 18 12 18s-8.65-2.2-9.94-5.66"/><circle cx="12" cy="12" r="3"/></svg>
+);
+
+const IconEyeOff = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m3 3 18 18"/><path d="M10.58 10.58A2 2 0 0 0 12 14a2 2 0 0 0 1.42-.58"/><path d="M9.88 5.09A9.76 9.76 0 0 1 12 4c5.38 0 8.65 2.2 9.94 5.66a1 1 0 0 1 0 .68 10.45 10.45 0 0 1-4.24 5.1"/><path d="M6.61 6.61A10.78 10.78 0 0 0 2.06 11.66a1 1 0 0 0 0 .68C3.35 15.8 6.62 18 12 18a9.8 9.8 0 0 0 5.39-1.61"/></svg>
 );
 
 const IconSync = () => (
@@ -716,6 +725,16 @@ function App() {
   const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const [leaderboardError, setLeaderboardError] = useState('');
   const [guestRainbowVerses, setGuestRainbowVerses] = useState([]);
+  const [dbUserProfile, setDbUserProfile] = useState(null);
+  const [authMode, setAuthMode] = useState('sign-in');
+  const [authNickname, setAuthNickname] = useState('');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authCode, setAuthCode] = useState('');
+  const [showAuthPassword, setShowAuthPassword] = useState(false);
+  const [authStep, setAuthStep] = useState('credentials');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [savedUsername, setSavedUsername] = useState('');
   const [avatarPreview, setAvatarPreview] = useState('');
@@ -723,6 +742,9 @@ function App() {
   const [profileError, setProfileError] = useState('');
   const [profileSuccess, setProfileSuccess] = useState('');
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
+  const [deleteAccountError, setDeleteAccountError] = useState('');
+  const [isDeletingAccount, setIsDeletingAccount] = useState(false);
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -751,6 +773,7 @@ function App() {
   const [isMobileLayout, setIsMobileLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
+  const [studyFallbackVerse, setStudyFallbackVerse] = useState(null);
   const leaderboardPageSize = 10;
 
   const cardRef = useRef(null);
@@ -758,6 +781,7 @@ function App() {
   const touchStartY = useRef(0);
   const avatarInputRef = useRef(null);
   const accountMenuRef = useRef(null);
+  const authCodeInputRefs = useRef([]);
   const planDetailsCacheRef = useRef({});
   const cacheSnapshotRef = useRef({ plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } });
   const syncTimeoutRef = useRef(null);
@@ -767,9 +791,13 @@ function App() {
   const pendingMobileFlipRef = useRef(0);
   const verseContentRef = useRef(null);
   const staticDataRef = useRef({ combined: null, frequent: null });
-  const { signOut, openSignIn, openSignUp } = useClerk();
+  const authAutoSubmitRef = useRef(false);
+  const { signOut, openSignIn, openSignUp, loaded: isClerkLoaded } = useClerk();
+  const { signIn } = useSignIn();
+  const { signUp } = useSignUp();
   const { getToken } = useAuth();
   const { user, isLoaded: isUserLoaded, isSignedIn } = useUser();
+  const authReady = isClerkLoaded && (authMode === 'sign-in' ? !!signIn : !!signUp);
 
   useEffect(() => {
     setApiTokenProvider(async () => {
@@ -1012,19 +1040,83 @@ function App() {
     }
   };
 
-  const getDefaultUsername = (email = '') => {
+  const getDefaultDisplayName = (email = '') => {
     const localPart = email.split('@')[0] || 'user';
-    const normalized = localPart
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, '_')
-      .replace(/^[._-]+|[._-]+$/g, '');
-
-    return normalized || 'user';
+    return localPart || '用户';
   };
 
   const primaryEmail = user?.primaryEmailAddress?.emailAddress || '';
   const displayedAvatar = avatarPreview || user?.imageUrl || '';
-  const displayUsername = savedUsername || usernameInput || user?.username || '用户';
+  const displayUsername = savedUsername || dbUserProfile?.username || usernameInput || user?.firstName || '用户';
+
+  const pickRandomStudyVerse = async () => {
+    const staticData = await getStaticDataSnapshot({ requireFrequent: true });
+    const frequentVerses = Array.isArray(staticData.frequent)
+      ? staticData.frequent.filter((verse) => verse?.verse_id)
+      : [];
+
+    if (frequentVerses.length === 0) {
+      return null;
+    }
+
+    const randomVerse = frequentVerses[Math.floor(Math.random() * frequentVerses.length)];
+    return getVerseDetailsFromStaticData(randomVerse.verse_id, staticData.combined, staticData.frequent, {
+      english: settings.englishVersion,
+      chinese: settings.chineseVersion,
+    });
+  };
+
+  const resetSignedInUserState = () => {
+    if (avatarPreview) {
+      URL.revokeObjectURL(avatarPreview);
+    }
+
+    setDbUserProfile(null);
+    setUsernameInput('');
+    setSavedUsername('');
+    setAvatarPreview('');
+    setSelectedAvatarFile(null);
+    setProfileError('');
+    setProfileSuccess('');
+    setDeleteAccountError('');
+    setShowDeleteAccountModal(false);
+    setPlans([]);
+    setPlansError('');
+    setMemorizationData({ activeVerses: [], masteredVerses: [] });
+    setMemorizationError('');
+    setMasteredVerses([]);
+    setSkippedVerses([]);
+    setCurrentVerseIndex(0);
+    setSelectedPlanId(null);
+    setSelectedPlan(null);
+    setSelectedPlanVerses([]);
+    setSelectedPlanError('');
+    setSelectedPlanLoading(false);
+    setShowSelectPlanModal(false);
+    setClearCurrentPlanSelection(false);
+    setIsSelectingPlan(false);
+    setLeaderboardData([]);
+    setLeaderboardError('');
+    setManualSyncing(false);
+    setSyncOverlay({ visible: false, text: '' });
+    setDataDownloadOverlay({ visible: false, text: '' });
+    planDetailsCacheRef.current = {};
+    cacheSnapshotRef.current = { plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } };
+
+    if (syncTimeoutRef.current) {
+      clearTimeout(syncTimeoutRef.current);
+      syncTimeoutRef.current = null;
+    }
+
+    if (syncOverlayTimeoutRef.current) {
+      clearTimeout(syncOverlayTimeoutRef.current);
+      syncOverlayTimeoutRef.current = null;
+    }
+
+    if (avatarInputRef.current) {
+      avatarInputRef.current.value = '';
+    }
+  };
 
   const persistUserSnapshot = async (overrides = {}) => {
     if (!user?.id) return;
@@ -1043,6 +1135,7 @@ function App() {
   const applyBootstrapPayload = async (payload) => {
     const nextSettings = resolveVersionSettings(payload?.user || {});
     setSettings(nextSettings);
+    setDbUserProfile(payload?.user || null);
     const staticData = await getStaticDataSnapshot({ requireFrequent: true });
     const nextPlans = (payload.plans || []).map((plan) => ({
       ...plan,
@@ -1300,12 +1393,12 @@ function App() {
       return;
     }
 
-    const defaultUsername = user.username || getDefaultUsername(primaryEmail);
+    const defaultUsername = dbUserProfile?.username || user.firstName || getDefaultDisplayName(primaryEmail);
     setUsernameInput(defaultUsername);
     setSavedUsername(defaultUsername);
     setAvatarPreview('');
     setSelectedAvatarFile(null);
-  }, [user?.id, user?.username, user?.imageUrl, primaryEmail]);
+  }, [dbUserProfile?.username, user?.id, user?.firstName, user?.imageUrl, primaryEmail]);
 
   useEffect(() => {
     cacheSnapshotRef.current = {
@@ -1314,15 +1407,6 @@ function App() {
       memorizationData,
     };
   }, [plans, memorizationData]);
-
-  useEffect(() => {
-    if (!user || user.username || !primaryEmail) return;
-
-    const defaultUsername = getDefaultUsername(primaryEmail);
-    user.update({ username: defaultUsername }).catch(() => {
-      // Keep the UI usable even if the initial default username sync fails.
-    });
-  }, [user, primaryEmail]);
 
   useEffect(() => {
     return () => {
@@ -1336,6 +1420,23 @@ function App() {
     if (activeTab !== 'leaderboard') return;
     void loadLeaderboard();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (authMode !== 'sign-up' || authStep !== 'verify') {
+      authAutoSubmitRef.current = false;
+      return;
+    }
+
+    if (authCode.length === 6 && !authLoading && !authAutoSubmitRef.current) {
+      authAutoSubmitRef.current = true;
+      void handleAuthSubmit();
+      return;
+    }
+
+    if (authCode.length < 6) {
+      authAutoSubmitRef.current = false;
+    }
+  }, [authCode, authLoading, authMode, authStep]);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -1428,6 +1529,7 @@ function App() {
     if (!isUserLoaded) return;
 
     if (!isSignedIn) {
+      setDbUserProfile(null);
       setMasteredVerses([]);
       setSkippedVerses([]);
       setCurrentVerseIndex(0);
@@ -1578,7 +1680,7 @@ function App() {
 
     const trimmedUsername = usernameInput.trim();
     if (!trimmedUsername) {
-      setProfileError('用户名不能为空');
+      setProfileError('昵称不能为空');
       setProfileSuccess('');
       return;
     }
@@ -1588,8 +1690,8 @@ function App() {
       setProfileError('');
       setProfileSuccess('');
 
-      if (trimmedUsername !== user.username) {
-        await user.update({ username: trimmedUsername });
+      if (trimmedUsername !== (user.firstName || '')) {
+        await user.update({ firstName: trimmedUsername });
       }
 
       if (selectedAvatarFile) {
@@ -1597,6 +1699,7 @@ function App() {
       }
 
       setSavedUsername(trimmedUsername);
+      setDbUserProfile((prev) => prev ? { ...prev, username: trimmedUsername } : prev);
       setSelectedAvatarFile(null);
       if (avatarPreview) {
         URL.revokeObjectURL(avatarPreview);
@@ -1610,6 +1713,42 @@ function App() {
       setProfileError(error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || '保存失败，请稍后重试');
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user?.id || isDeletingAccount) {
+      return;
+    }
+
+    try {
+      setIsDeletingAccount(true);
+      setDeleteAccountError('');
+
+      await fetchApiJson('/api/account', {
+        method: 'DELETE',
+      });
+
+      const pendingRecords = await getPendingOperations(user.id);
+      if (pendingRecords.length > 0) {
+        await clearPendingOperations(pendingRecords.map((record) => record.id));
+      }
+      await clearUserCache(user.id);
+
+      resetSignedInUserState();
+      setActiveTab('memorization');
+      setSidebarOpen(false);
+      setAccountMenuOpen(false);
+
+      try {
+        await signOut({ redirectUrl: '/' });
+      } catch {
+        window.location.href = '/';
+      }
+    } catch (error) {
+      setDeleteAccountError(error?.message?.replace(/^HTTP \d+:\s*/, '') || '删除账号失败，请稍后重试');
+    } finally {
+      setIsDeletingAccount(false);
     }
   };
 
@@ -1643,6 +1782,7 @@ function App() {
   const shouldShowGuestMemorization = isUserLoaded && !isSignedIn;
   const currentVerseList = shouldShowGuestMemorization ? guestCurrentVerseList : memorizationData.activeVerses;
   const currentVerse = currentVerseList[currentVerseIndex];
+  const studyVerse = currentVerse || studyFallbackVerse;
   const showMemorizationLoading = !isUserLoaded || (!isSignedIn && (plansLoading || ((!plansError) && (!staticDataRef.current.frequent || !staticDataRef.current.combined || guestRainbowVerses.length === 0)))) || (isSignedIn && memorizationLoading);
   const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
   const showMobileSearchLanding = isMobileLayout && activeTab === 'search' && !showSearchResults;
@@ -1653,6 +1793,41 @@ function App() {
       ? getTestamentByVerseId(verse.id) === 'old'
       : getTestamentByVerseId(verse.id) === 'new';
   });
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (activeTab !== 'study') {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (currentVerse) {
+      setStudyFallbackVerse(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void (async () => {
+      try {
+        const nextVerse = await pickRandomStudyVerse();
+        if (!cancelled) {
+          setStudyFallbackVerse(nextVerse);
+        }
+      } catch {
+        if (!cancelled) {
+          setStudyFallbackVerse(null);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, currentVerse, settings.chineseVersion, settings.englishVersion, staticDataRevision]);
+
   const showMobileMenuOnlyHeader = isMobileLayout && ['study', 'progress', 'settings'].includes(activeTab);
   const showMobileBackOnlyHeader = isMobileLayout && (
     showMobileSearchResults ||
@@ -1734,9 +1909,200 @@ function App() {
     setActiveTab('memorization');
   };
 
+  const resetAuthForm = () => {
+    setAuthNickname('');
+    setAuthEmail('');
+    setAuthPassword('');
+    setAuthCode('');
+    setShowAuthPassword(false);
+    setAuthError('');
+    setAuthStep('credentials');
+    setAuthLoading(false);
+    authAutoSubmitRef.current = false;
+  };
+
+  const openAuthPage = (mode = 'sign-in') => {
+    setAuthMode(mode);
+    resetAuthForm();
+    setActiveTab('auth');
+    setSidebarOpen(false);
+    setAccountMenuOpen(false);
+  };
+
+  const handleAuthCodeChange = (index, rawValue) => {
+    const nextChar = rawValue.replace(/\D/g, '').slice(-1);
+    const chars = Array.from({ length: 6 }, (_, idx) => authCode[idx] || '');
+    chars[index] = nextChar;
+    const nextCode = chars.join('');
+    setAuthCode(nextCode);
+    setAuthError('');
+
+    if (nextChar && index < 5) {
+      authCodeInputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleAuthCodeKeyDown = (index, event) => {
+    if (event.key === 'Backspace' && !authCode[index] && index > 0) {
+      authCodeInputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleAuthCodePaste = (event) => {
+    const pasted = event.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!pasted) return;
+
+    event.preventDefault();
+    setAuthCode(pasted);
+    setAuthError('');
+
+    const focusIndex = Math.min(pasted.length - 1, 5);
+    if (focusIndex >= 0) {
+      authCodeInputRefs.current[focusIndex]?.focus();
+    }
+  };
+
+  const handleAuthSubmit = async () => {
+    if (authMode === 'sign-in') {
+      if (!authEmail.trim() || !authPassword) {
+        setAuthError('请输入邮箱和密码');
+        return;
+      }
+
+      if (!signIn || !authReady) {
+        return;
+      }
+
+      try {
+        setAuthLoading(true);
+        setAuthError('');
+        const { error } = await signIn.password({
+          emailAddress: authEmail.trim(),
+          password: authPassword,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (signIn.status === 'complete') {
+          const finalizeResult = await signIn.finalize();
+          if (finalizeResult.error) {
+            throw finalizeResult.error;
+          }
+          resetAuthForm();
+          setActiveTab('memorization');
+        } else if (signIn.status === 'needs_client_trust') {
+          await signIn.mfa.sendEmailCode();
+          setAuthStep('client-trust');
+        } else {
+          setAuthError('登录流程未完成，请重试');
+        }
+      } catch (error) {
+        setAuthError(error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || '登录失败，请稍后重试');
+      } finally {
+        setAuthLoading(false);
+      }
+
+      return;
+    }
+
+    if (authStep === 'credentials') {
+      if (!authNickname.trim() || !authEmail.trim() || !authPassword) {
+        setAuthError('请输入昵称、邮箱和密码');
+        return;
+      }
+
+      if (!signUp || !authReady) {
+        return;
+      }
+
+      try {
+        setAuthLoading(true);
+        setAuthError('');
+        const { error } = await signUp.password({
+          firstName: authNickname.trim(),
+          emailAddress: authEmail.trim(),
+          password: authPassword,
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        await signUp.verifications.sendEmailCode();
+        setAuthStep('verify');
+      } catch (error) {
+        setAuthError(error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || '注册失败，请稍后重试');
+      } finally {
+        setAuthLoading(false);
+      }
+
+      return;
+    }
+
+    if (!authCode.trim()) {
+      setAuthError('请输入邮箱验证码');
+      return;
+    }
+
+    try {
+      setAuthLoading(true);
+      setAuthError('');
+
+      if (authMode === 'sign-in') {
+        if (!signIn || !authReady) {
+          return;
+        }
+
+        const { error } = await signIn.mfa.verifyEmailCode({
+          code: authCode.trim(),
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (signIn.status === 'complete') {
+          const finalizeResult = await signIn.finalize();
+          if (finalizeResult.error) {
+            throw finalizeResult.error;
+          }
+          resetAuthForm();
+          setActiveTab('memorization');
+        }
+      } else {
+        if (!signUp || !authReady) {
+          return;
+        }
+
+        const { error } = await signUp.verifications.verifyEmailCode({
+          code: authCode.trim(),
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (signUp.status === 'complete') {
+          const finalizeResult = await signUp.finalize();
+          if (finalizeResult.error) {
+            throw finalizeResult.error;
+          }
+          resetAuthForm();
+          setActiveTab('memorization');
+        }
+      }
+    } catch (error) {
+      setAuthError(error?.errors?.[0]?.longMessage || error?.errors?.[0]?.message || '验证码校验失败，请稍后重试');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
   const openLeaderboard = () => {
     if (!isSignedIn) {
-      setActiveTab('auth');
+      openAuthPage('sign-in');
       return;
     }
     setActiveTab('leaderboard');
@@ -1744,8 +2110,7 @@ function App() {
 
   const handleSidebarNavigation = (tabId) => {
     if (!isSignedIn && (tabId === 'progress' || tabId === 'settings')) {
-      setSidebarOpen(false);
-      setActiveTab('auth');
+      openAuthPage('sign-in');
       return;
     }
 
@@ -2394,7 +2759,7 @@ function App() {
                 </div>
               ) : (
                 <button
-                  onClick={() => openSignIn()}
+                  onClick={() => openAuthPage('sign-in')}
                   className="px-4 py-2 bg-primary text-white rounded-lg font-medium hover:bg-blue-600 transition-colors"
                 >
                   登录
@@ -2748,7 +3113,7 @@ function App() {
                           重新开始
                         </button>
                         <button
-                          onClick={() => openSignIn()}
+                          onClick={() => openAuthPage('sign-in')}
                           className="px-6 py-3 rounded-full font-medium border transition-colors"
                           style={{ borderColor: darkMode ? '#30363d' : '#d1d5db' }}
                         >
@@ -3017,22 +3382,166 @@ function App() {
           {activeTab === 'auth' && (
             <div className="max-w-xl mx-auto pt-6">
               <div
-                className="rounded-[2rem] border px-8 py-10 text-center shadow-sm"
+                className="rounded-[2rem] border px-6 py-8 md:px-8 md:py-10 shadow-sm"
                 style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
               >
-                <p className="text-3xl font-bold" style={{ fontFamily: TITLE_FONT_FAMILY }}>
-                  欢迎使用BibleBee
-                </p>
-                <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">
-                  我将你的话藏在心里...
-                </p>
-                <button
-                  type="button"
-                  onClick={() => openSignIn()}
-                  className="mt-8 px-8 py-3 rounded-full bg-primary text-white font-medium hover:bg-blue-600 transition-colors"
-                >
-                  登录 / 注册
-                </button>
+                <div className="text-center">
+                  <p className="text-3xl font-bold" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                    {authMode === 'sign-in'
+                      ? authStep === 'client-trust' ? '验证登录' : '欢迎回来'
+                      : authStep === 'verify' ? '邮箱验证' : '创建账号'}
+                  </p>
+                  <p className="mt-3 text-sm text-gray-500 dark:text-gray-400">
+                    {authMode === 'sign-in'
+                      ? authStep === 'client-trust'
+                        ? '请输入发送到邮箱的验证码完成登录'
+                        : '使用邮箱和密码登录 BibleBee'
+                      : authStep === 'verify'
+                        ? '请输入发送到邮箱的验证码完成注册'
+                        : '使用昵称、邮箱和密码创建账号'}
+                  </p>
+                </div>
+
+                <div className="mt-6 inline-flex rounded-2xl p-1" style={{ backgroundColor: darkMode ? '#21262d' : '#f3f4f6' }}>
+                  <button
+                    type="button"
+                    onClick={() => openAuthPage('sign-in')}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${authMode === 'sign-in' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}
+                  >
+                    登录
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => openAuthPage('sign-up')}
+                    className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${authMode === 'sign-up' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 dark:text-gray-300'}`}
+                  >
+                    注册
+                  </button>
+                </div>
+
+                <div className="mt-6 space-y-4">
+                  {authMode === 'sign-up' && authStep === 'credentials' && (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">昵称</label>
+                      <input
+                        type="text"
+                        value={authNickname}
+                        onChange={(e) => {
+                          setAuthNickname(e.target.value);
+                          setAuthError('');
+                        }}
+                        className="w-full px-4 py-3 border rounded-xl focus:outline-none focus:border-primary"
+                        style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                        placeholder="输入昵称"
+                      />
+                      <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        昵称可使用中文、空格、大小写
+                      </p>
+                    </div>
+                  )}
+
+                  {(authMode === 'sign-up' && authStep === 'verify') || (authMode === 'sign-in' && authStep === 'client-trust') ? (
+                    <div>
+                      <label className="block text-sm font-medium mb-2">验证码</label>
+                      <div className="flex items-center justify-between gap-2 md:gap-3">
+                        {Array.from({ length: 6 }, (_, index) => (
+                          <input
+                            key={index}
+                            ref={(element) => {
+                              authCodeInputRefs.current[index] = element;
+                            }}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={1}
+                            value={authCode[index] || ''}
+                            onChange={(e) => handleAuthCodeChange(index, e.target.value)}
+                            onKeyDown={(e) => handleAuthCodeKeyDown(index, e)}
+                            onPaste={handleAuthCodePaste}
+                            className="h-12 w-12 md:h-14 md:w-14 rounded-xl border text-center text-lg font-semibold focus:outline-none focus:border-primary"
+                            style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                          />
+                        ))}
+                      </div>
+                      <p className="mt-3 text-xs text-gray-500 dark:text-gray-400">
+                        输入 6 位验证码后将自动完成{authMode === 'sign-up' ? '注册' : '登录'}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <div>
+                        <label className="block text-sm font-medium mb-2">邮箱</label>
+                        <input
+                          type="email"
+                          value={authEmail}
+                          onChange={(e) => {
+                            setAuthEmail(e.target.value);
+                            setAuthError('');
+                          }}
+                          className="w-full px-4 py-3 border rounded-xl focus:outline-none focus:border-primary"
+                          style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                          placeholder="输入邮箱"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-sm font-medium mb-2">密码</label>
+                        <div className="relative">
+                          <input
+                            type={showAuthPassword ? 'text' : 'password'}
+                            value={authPassword}
+                            onChange={(e) => {
+                              setAuthPassword(e.target.value);
+                              setAuthError('');
+                            }}
+                            className="w-full px-4 py-3 pr-12 border rounded-xl focus:outline-none focus:border-primary"
+                            style={{ backgroundColor: darkMode ? '#21262d' : '#ffffff', borderColor: darkMode ? '#30363d' : '#d1d5db' }}
+                            placeholder="输入密码"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowAuthPassword((prev) => !prev)}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-primary transition-colors"
+                            aria-label={showAuthPassword ? '隐藏密码' : '显示密码'}
+                          >
+                            {showAuthPassword ? <IconEyeOff /> : <IconEye />}
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {authError && (
+                  <p className="mt-4 text-sm text-red-500">{authError}</p>
+                )}
+                {!authReady && (
+                  <p className="mt-4 text-sm text-gray-500 dark:text-gray-400">认证服务加载中...</p>
+                )}
+
+                {!((authMode === 'sign-up' && authStep === 'verify')) && (
+                  <button
+                    type="button"
+                    onClick={() => void handleAuthSubmit()}
+                    disabled={authLoading || !authReady}
+                    className="mt-6 w-full px-8 py-3 rounded-full bg-primary text-white font-medium hover:bg-blue-600 transition-colors disabled:opacity-60"
+                  >
+                    {authLoading
+                      ? '处理中...'
+                      : authMode === 'sign-in'
+                        ? authStep === 'client-trust' ? '完成登录' : '登录'
+                        : '继续'}
+                  </button>
+                )}
+                {!authReady && (
+                  <button
+                    type="button"
+                    onClick={() => authMode === 'sign-in' ? openSignIn() : openSignUp()}
+                    className="mt-3 text-sm text-primary hover:underline"
+                  >
+                    如果等待较久，尝试打开官方{authMode === 'sign-in' ? '登录' : '注册'}窗口
+                  </button>
+                )}
               </div>
             </div>
           )}
@@ -3046,15 +3555,15 @@ function App() {
               </div>
 
               <div className="w-full rounded-lg shadow-sm p-5 md:p-6 overflow-hidden" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
-                <h3 className="font-medium mb-4">{currentVerse?.referenceCN} {currentVerse?.reference}</h3>
+                <h3 className="font-medium mb-4">{studyVerse?.referenceCN} {studyVerse?.reference}</h3>
                 <div className="space-y-4">
                   <div style={{ fontFamily: TITLE_FONT_FAMILY }} className="text-lg leading-relaxed break-words flex flex-wrap gap-x-1.5 gap-y-2">
-                    {currentVerse?.english.split(' ').map((word, i) => (
+                    {studyVerse?.english?.split(' ').map((word, i) => (
                       <span key={i} className="text-primary cursor-pointer hover:underline break-words">{word}</span>
                     ))}
                   </div>
                   <div style={{ fontFamily: TITLE_FONT_FAMILY }} className="text-lg leading-relaxed break-words">
-                    {currentVerse?.chinese}
+                    {studyVerse?.chinese}
                   </div>
                 </div>
               </div>
@@ -3369,7 +3878,7 @@ function App() {
 
                   <div className="grid grid-cols-1 gap-5 mt-8">
                     <div>
-                      <label className="block text-sm font-medium mb-2">用户名</label>
+                      <label className="block text-sm font-medium mb-2">昵称</label>
                       <input
                         type="text"
                         value={usernameInput}
@@ -3404,6 +3913,21 @@ function App() {
                   <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-3 mt-8">
                     <button
                       type="button"
+                      onClick={() => {
+                        setDeleteAccountError('');
+                        setShowDeleteAccountModal(true);
+                      }}
+                      className="px-5 py-3 rounded-xl border font-medium transition-colors sm:mr-auto"
+                      style={{
+                        borderColor: darkMode ? 'rgba(239,68,68,0.28)' : '#fecaca',
+                        backgroundColor: darkMode ? 'rgba(127,29,29,0.16)' : '#fff7f7',
+                        color: darkMode ? '#fca5a5' : '#b91c1c',
+                      }}
+                    >
+                      删除账号
+                    </button>
+                    <button
+                      type="button"
                       onClick={handleCancelProfileEdit}
                       className="px-5 py-3 rounded-xl border font-medium transition-colors"
                       style={{ borderColor: darkMode ? '#30363d' : '#d1d5db', backgroundColor: darkMode ? '#21262d' : '#ffffff' }}
@@ -3430,7 +3954,7 @@ function App() {
                   <h3 className="text-xl font-bold mb-2">访客模式</h3>
                   <p className="text-gray-500 dark:text-gray-400 mb-6">登录后可同步您的背诵进度到云端</p>
                   <button 
-                    onClick={() => openSignUp()}
+                    onClick={() => openAuthPage('sign-up')}
                     className="px-6 py-3 bg-primary text-white rounded-xl font-medium hover:bg-blue-600 transition-colors"
                   >
                     登录 / 注册
@@ -4089,6 +4613,48 @@ function App() {
                 className="px-4 py-2 rounded-xl bg-primary text-white hover:bg-blue-600 disabled:opacity-60"
               >
                 {isSelectingPlan ? '确认中...' : '确认'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDeleteAccountModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div
+            className="w-full max-w-md rounded-3xl p-6 shadow-2xl"
+            style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+          >
+            <h3 className="text-xl font-bold">确认删除账号？</h3>
+            <p className="mt-3 text-sm leading-6 text-gray-500 dark:text-gray-400">
+              此操作无法恢复。
+            </p>
+
+            {deleteAccountError && (
+              <p className="mt-4 text-sm text-red-500">{deleteAccountError}</p>
+            )}
+
+            <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => {
+                  if (isDeletingAccount) return;
+                  setShowDeleteAccountModal(false);
+                  setDeleteAccountError('');
+                }}
+                className="rounded-xl border px-4 py-3 font-medium transition-colors"
+                style={{ borderColor: darkMode ? '#30363d' : '#d1d5db', backgroundColor: darkMode ? '#21262d' : '#ffffff' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={isDeletingAccount}
+                className="rounded-xl px-4 py-3 font-medium text-white transition-colors disabled:opacity-60"
+                style={{ backgroundColor: '#dc2626' }}
+              >
+                {isDeletingAccount ? '删除中...' : '确认删除账号'}
               </button>
             </div>
           </div>

@@ -168,8 +168,10 @@ const clerkLocalization = {
   dividerText: '或',
   formFieldLabel__emailAddress: '',
   formFieldLabel__password: '',
+  formFieldLabel__firstName: '昵称',
   formFieldInputPlaceholder__emailAddress: '输入邮箱',
   formFieldInputPlaceholder__password: '输入密码',
+  formFieldInputPlaceholder__firstName: '输入昵称',
   formButtonPrimary: '继续',
 }
 

@@ -12,6 +12,10 @@ function getPrimaryEmail(data) {
   )
 }
 
+function getDisplayName(data) {
+  return data.first_name || getPrimaryEmail(data)?.split('@')[0] || data.id
+}
+
 function toDateOrNull(value) {
   return value ? new Date(value) : null
 }
@@ -35,7 +39,7 @@ export default async function handler(req, res) {
       await upsertClerkUser({
         clerkUserId: event.data.id,
         email: getPrimaryEmail(event.data),
-        username: event.data.username || getPrimaryEmail(event.data)?.split('@')[0] || event.data.id,
+        username: getDisplayName(event.data),
         imageUrl: event.data.profile_image_url || event.data.image_url || null,
         clerkCreatedAt: toDateOrNull(event.data.created_at),
         clerkUpdatedAt: toDateOrNull(event.data.updated_at),
