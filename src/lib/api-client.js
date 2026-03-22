@@ -29,11 +29,13 @@ export async function fetchApiJson(path, options) {
     : null
   const isSameOrigin = !requestUrl || requestUrl.origin === window.location.origin
   const authorization = isSameOrigin ? '' : await getAuthorizationHeaderValue()
+  const method = String(options?.method || 'GET').toUpperCase()
+  const shouldSendJsonContentType = method !== 'GET' && method !== 'HEAD'
   const response = await fetch(requestUrl ? requestUrl.toString() : path, {
     credentials: isSameOrigin ? 'include' : 'omit',
     ...options,
     headers: {
-      'Content-Type': 'application/json',
+      ...(shouldSendJsonContentType ? { 'Content-Type': 'application/json' } : {}),
       ...(authorization ? { Authorization: authorization } : {}),
       ...(options?.headers || {}),
     },
