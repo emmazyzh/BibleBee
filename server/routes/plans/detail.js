@@ -1,7 +1,7 @@
-import { getSql } from '../../server/lib/db.js'
-import { ApiError } from '../../server/lib/http.js'
-import { getOptionalCurrentDbUser } from '../../server/lib/current-user.js'
-import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../_utils.js'
+import { getSql } from '../../lib/db.js'
+import { ApiError } from '../../lib/http.js'
+import { getOptionalCurrentDbUser } from '../../lib/current-user.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../../../api/_utils.js'
 
 export default async function handler(req, res) {
   if (handleCors(req, res)) return
