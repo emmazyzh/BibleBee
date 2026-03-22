@@ -1009,10 +1009,8 @@ function App() {
     try {
       setPlansLoading(true);
       setPlansError('');
-      await Promise.all([
-        ensureStaticJsonCached('frequent'),
-        ensureStaticJsonCached('combined'),
-      ]);
+      await ensureStaticJsonCached('frequent');
+      void ensureStaticJsonCached('combined').catch(() => {});
       const result = await fetchApiJson('/api/plans');
       const nextPlans = (result.plans || []).map((plan) => ({
         ...plan,
@@ -1022,7 +1020,7 @@ function App() {
 
       const rainbowPlanId = 'plan_rainbow_memorization';
       const rainbowDetailResult = await fetchApiJson(`/api/plans/${rainbowPlanId}`);
-      const staticData = await getStaticDataSnapshot({ requireFrequent: true, requireCombined: true });
+      const staticData = await getStaticDataSnapshot({ requireFrequent: true });
       const rainbowDetail = hydratePlanDetail({
         plan: {
           ...rainbowDetailResult.plan,
@@ -1783,7 +1781,7 @@ function App() {
   const currentVerseList = shouldShowGuestMemorization ? guestCurrentVerseList : memorizationData.activeVerses;
   const currentVerse = currentVerseList[currentVerseIndex];
   const studyVerse = currentVerse || studyFallbackVerse;
-  const showMemorizationLoading = !isUserLoaded || (!isSignedIn && (plansLoading || ((!plansError) && (!staticDataRef.current.frequent || !staticDataRef.current.combined || guestRainbowVerses.length === 0)))) || (isSignedIn && memorizationLoading);
+  const showMemorizationLoading = !isUserLoaded || (!isSignedIn && (plansLoading || ((!plansError) && (!staticDataRef.current.frequent || guestRainbowVerses.length === 0)))) || (isSignedIn && memorizationLoading);
   const showEmptyMemorizationState = isUserLoaded && isSignedIn && !memorizationLoading && currentVerseList.length === 0;
   const showGuestEmptyState = isUserLoaded && !isSignedIn && !plansLoading && currentVerseList.length === 0;
   const showMobileSearchLanding = isMobileLayout && activeTab === 'search' && !showSearchResults;
