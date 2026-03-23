@@ -186,6 +186,10 @@ const IconSync = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M3 12a9 9 0 0 1 15.5-6.36L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.5 6.36L3 16"/><path d="M8 16H3v5"/></svg>
 );
 
+const IconMessageSquare = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+);
+
 // 首字母模式组件
 function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
@@ -745,6 +749,13 @@ function App() {
   const [showDeleteAccountModal, setShowDeleteAccountModal] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState('');
   const [isDeletingAccount, setIsDeletingAccount] = useState(false);
+  const [feedbackInput, setFeedbackInput] = useState('');
+  const [feedbackSubmitError, setFeedbackSubmitError] = useState('');
+  const [feedbackSubmitSuccess, setFeedbackSubmitSuccess] = useState('');
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [myFeedbackItems, setMyFeedbackItems] = useState([]);
+  const [myFeedbackLoading, setMyFeedbackLoading] = useState(false);
+  const [myFeedbackError, setMyFeedbackError] = useState('');
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [plans, setPlans] = useState([]);
   const [plansLoading, setPlansLoading] = useState(false);
@@ -1100,6 +1111,13 @@ function App() {
     setManualSyncing(false);
     setSyncOverlay({ visible: false, text: '' });
     setDataDownloadOverlay({ visible: false, text: '' });
+    setFeedbackInput('');
+    setFeedbackSubmitError('');
+    setFeedbackSubmitSuccess('');
+    setIsSubmittingFeedback(false);
+    setMyFeedbackItems([]);
+    setMyFeedbackLoading(false);
+    setMyFeedbackError('');
     planDetailsCacheRef.current = {};
     cacheSnapshotRef.current = { plans: [], planDetails: {}, memorizationData: { activeVerses: [], masteredVerses: [] } };
 
@@ -1420,6 +1438,17 @@ function App() {
     if (activeTab !== 'leaderboard') return;
     void loadLeaderboard();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'my-feedback' || !isSignedIn) return;
+    void loadMyFeedback();
+  }, [activeTab, isSignedIn]);
+
+  useEffect(() => {
+    if (activeTab === 'study' && !isSignedIn) {
+      openAuthPage('sign-in');
+    }
+  }, [activeTab, isSignedIn]);
 
   useEffect(() => {
     if (authMode !== 'sign-up' || authStep !== 'verify') {
@@ -1764,6 +1793,107 @@ function App() {
     setAccountMenuOpen(false);
   };
 
+  const getFeedbackStatusLabel = (status) => {
+    if (status === 'reviewing') return '处理中';
+    if (status === 'resolved') return '已处理';
+    if (status === 'closed') return '已关闭';
+    return '待处理';
+  };
+
+  const getFeedbackStatusStyle = (status) => {
+    if (status === 'resolved') {
+      return {
+        backgroundColor: darkMode ? 'rgba(20,83,45,0.32)' : '#dcfce7',
+        color: darkMode ? '#86efac' : '#15803d',
+      };
+    }
+
+    if (status === 'reviewing') {
+      return {
+        backgroundColor: darkMode ? 'rgba(30,64,175,0.28)' : '#dbeafe',
+        color: darkMode ? '#93c5fd' : '#1d4ed8',
+      };
+    }
+
+    if (status === 'closed') {
+      return {
+        backgroundColor: darkMode ? 'rgba(71,85,105,0.28)' : '#e2e8f0',
+        color: darkMode ? '#cbd5e1' : '#475569',
+      };
+    }
+
+    return {
+      backgroundColor: darkMode ? 'rgba(120,53,15,0.28)' : '#fef3c7',
+      color: darkMode ? '#fcd34d' : '#b45309',
+    };
+  };
+
+  const formatFeedbackDateTime = (value) => {
+    if (!value) return '';
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return '';
+    }
+
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  };
+
+  const loadMyFeedback = async () => {
+    if (!isSignedIn) return;
+
+    try {
+      setMyFeedbackLoading(true);
+      setMyFeedbackError('');
+      const result = await fetchApiJson('/api/feedback');
+      setMyFeedbackItems(result.feedback || []);
+    } catch (error) {
+      setMyFeedbackError(error.message || '读取反馈失败');
+    } finally {
+      setMyFeedbackLoading(false);
+    }
+  };
+
+  const handleSubmitFeedback = async () => {
+    const trimmedContent = feedbackInput.trim();
+
+    if (!isSignedIn) {
+      openAuthPage('sign-in');
+      return;
+    }
+
+    if (trimmedContent.length < 10) {
+      setFeedbackSubmitError('反馈内容至少填写 10 个字');
+      setFeedbackSubmitSuccess('');
+      return;
+    }
+
+    try {
+      setIsSubmittingFeedback(true);
+      setFeedbackSubmitError('');
+      setFeedbackSubmitSuccess('');
+      const result = await fetchApiJson('/api/feedback', {
+        method: 'POST',
+        body: JSON.stringify({
+          content: trimmedContent,
+        }),
+      });
+      setFeedbackInput('');
+      setFeedbackSubmitSuccess('反馈已提交');
+      setMyFeedbackItems((prev) => [result.feedback, ...prev]);
+    } catch (error) {
+      setFeedbackSubmitError(error.message?.replace(/^HTTP \d+:\s*/, '') || '提交反馈失败');
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  };
+
   const getCurrentVerseList = () => {
     if (!isSignedIn) {
       return guestRainbowVerses.filter((verse) =>
@@ -1829,10 +1959,10 @@ function App() {
     };
   }, [activeTab, currentVerse, settings.chineseVersion, settings.englishVersion, staticDataRevision]);
 
-  const showMobileMenuOnlyHeader = isMobileLayout && ['study', 'progress', 'settings'].includes(activeTab);
+  const showMobileMenuOnlyHeader = isMobileLayout && ['study', 'progress', 'settings', 'feedback'].includes(activeTab);
   const showMobileBackOnlyHeader = isMobileLayout && (
     showMobileSearchResults ||
-    ['userinfo', 'leaderboard', 'plan-detail', 'auth'].includes(activeTab)
+    ['userinfo', 'leaderboard', 'plan-detail', 'auth', 'my-feedback'].includes(activeTab)
   );
   const showMobileCompactHeader = isMobileLayout && !showMobileSearchLanding && !showMobileBackOnlyHeader && !showMobileMenuOnlyHeader;
   const showMobileMemorizationHeader = isMobileLayout && activeTab === 'memorization';
@@ -1915,6 +2045,8 @@ function App() {
     if (activeTab === 'plan-detail') return selectedPlan?.plan_name || '经文列表';
     if (activeTab === 'progress') return '进度';
     if (activeTab === 'settings') return '设置';
+    if (activeTab === 'feedback') return '反馈';
+    if (activeTab === 'my-feedback') return '我的反馈';
     if (activeTab === 'userinfo') return '账号管理';
     if (activeTab === 'leaderboard') return '排行榜';
     if (activeTab === 'auth') return '登录';
@@ -1929,6 +2061,11 @@ function App() {
 
     if (activeTab === 'userinfo') {
       setActiveTab('progress');
+      return;
+    }
+
+    if (activeTab === 'my-feedback') {
+      setActiveTab('feedback');
       return;
     }
 
@@ -2140,7 +2277,7 @@ function App() {
   };
 
   const handleSidebarNavigation = (tabId) => {
-    if (!isSignedIn && (tabId === 'progress' || tabId === 'settings')) {
+    if (!isSignedIn && (tabId === 'study' || tabId === 'progress' || tabId === 'settings' || tabId === 'feedback' || tabId === 'my-feedback')) {
       openAuthPage('sign-in');
       return;
     }
@@ -2169,6 +2306,11 @@ function App() {
 
     if (activeTab === 'userinfo') {
       setActiveTab('memorization');
+      return;
+    }
+
+    if (activeTab === 'my-feedback') {
+      setActiveTab('feedback');
       return;
     }
 
@@ -2980,6 +3122,7 @@ function App() {
                   { id: 'study', label: '研读', icon: IconStudy },
                   { id: 'plan', label: '计划', icon: IconBarChart },
                   { id: 'progress', label: '进度', icon: IconUser },
+                  { id: 'feedback', label: '反馈', icon: IconMessageSquare },
                   { id: 'settings', label: '设置', icon: IconSettings },
                 ].map(item => (
                   <li key={item.id}>
@@ -3328,7 +3471,13 @@ function App() {
                     {!isMobileLayout && (
                     <div className="text-center mt-4">
                       <button
-                        onClick={() => setActiveTab('study')}
+                        onClick={() => {
+                          if (!isSignedIn) {
+                            openAuthPage('sign-in');
+                            return;
+                          }
+                          setActiveTab('study');
+                        }}
                         className="text-sm text-primary hover:underline"
                       >
                         深度研读
@@ -3615,6 +3764,27 @@ function App() {
                 <div>
                   <p className="text-sm text-gray-400 mt-0">敬畏耶和华是智慧的开端，认识至圣者便是聪明。</p>
                 </div>
+              </div>
+
+              <div
+                className="rounded-[1.5rem] border px-5 py-4 md:px-6 md:py-5"
+                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+              >
+                <p className="text-sm md:text-base text-gray-500 dark:text-gray-300 leading-7">
+                  研读功能设计中，请告诉我们你对这个功能的
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('feedback')}
+                    className="mx-2 inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium text-primary transition-colors"
+                    style={{
+                      backgroundColor: darkMode ? 'rgba(59,130,246,0.12)' : '#eff6ff',
+                      borderColor: darkMode ? 'rgba(59,130,246,0.22)' : '#bfdbfe',
+                    }}
+                  >
+                    建议
+                  </button>
+                  。
+                </p>
               </div>
 
               <div className="w-full rounded-lg shadow-sm p-5 md:p-6 overflow-hidden" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
@@ -4288,6 +4458,180 @@ function App() {
                   </>
                 )}
               </div>
+            </div>
+          )}
+
+          {activeTab === 'feedback' && (
+            <div className="max-w-3xl mx-auto space-y-6 pt-4">
+              <div
+                className="overflow-hidden rounded-[2rem] shadow-xl"
+                style={{
+                  background: darkMode
+                    ? 'linear-gradient(135deg, #161b22 0%, #1c2430 55%, #0f1720 100%)'
+                    : 'linear-gradient(135deg, #fffdf6 0%, #f7f2e7 46%, #eef5ff 100%)',
+                }}
+              >
+                <div className="px-6 py-7 md:px-8 md:py-8">
+                  <p className="text-xs uppercase tracking-[0.28em] text-primary/80 mb-3">Feedback</p>
+                  <h2 className="text-3xl md:text-4xl font-bold leading-tight" style={{ fontFamily: TITLE_FONT_FAMILY }}>
+                    反馈
+                  </h2>
+                  <p className="mt-4 text-xs md:text-sm text-gray-500 dark:text-gray-300">
+                    我们会认真阅读每一条反馈，并努力让工具变得更好！
+                  </p>
+                </div>
+              </div>
+
+              <section
+                className="rounded-[1.75rem] border p-6 shadow-sm"
+                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+              >
+
+                <div
+                  className="mb-5 rounded-2xl px-4 py-3 text-sm"
+                  style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc', color: darkMode ? '#cbd5e1' : '#64748b' }}
+                >
+                  填写指引：[页面|功能] [什么情况下] [问题|建议]
+                </div>
+
+                <textarea
+                  value={feedbackInput}
+                  onChange={(event) => {
+                    setFeedbackInput(event.target.value);
+                    if (feedbackSubmitError) setFeedbackSubmitError('');
+                    if (feedbackSubmitSuccess) setFeedbackSubmitSuccess('');
+                  }}
+                  placeholder="例如：[首页闪卡] [左右翻页后] [按钮位置偶尔被顶部导航遮住]"
+                  className="min-h-[180px] w-full rounded-3xl border px-5 py-4 text-sm leading-7 outline-none transition-colors focus:border-primary"
+                  style={{
+                    backgroundColor: darkMode ? '#21262d' : '#f8fafc',
+                    borderColor: darkMode ? '#30363d' : '#dbe3ee',
+                    color: darkMode ? '#f8fafc' : '#0f172a',
+                  }}
+                />
+
+                {(feedbackSubmitError || feedbackSubmitSuccess) && (
+                  <div
+                    className="mt-4 rounded-2xl px-4 py-3 text-sm"
+                    style={{
+                      backgroundColor: feedbackSubmitError
+                        ? (darkMode ? 'rgba(127,29,29,0.28)' : '#fef2f2')
+                        : (darkMode ? 'rgba(20,83,45,0.32)' : '#f0fdf4'),
+                      color: feedbackSubmitError
+                        ? (darkMode ? '#fca5a5' : '#dc2626')
+                        : (darkMode ? '#86efac' : '#15803d'),
+                    }}
+                  >
+                    {feedbackSubmitError || feedbackSubmitSuccess}
+                  </div>
+                )}
+
+                <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveTab('my-feedback');
+                      void loadMyFeedback();
+                    }}
+                    className="inline-flex items-center justify-center rounded-2xl border px-5 py-3 text-sm font-medium transition-colors"
+                    style={{
+                      borderColor: darkMode ? '#30363d' : '#d1d5db',
+                      backgroundColor: darkMode ? '#21262d' : '#ffffff',
+                    }}
+                  >
+                    我的反馈
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSubmitFeedback}
+                    disabled={isSubmittingFeedback}
+                    className="inline-flex items-center justify-center rounded-2xl bg-primary px-5 py-3 text-sm font-medium text-white shadow-md transition-colors hover:bg-blue-600 disabled:opacity-60"
+                  >
+                    {isSubmittingFeedback ? '提交中...' : '提交反馈'}
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {activeTab === 'my-feedback' && (
+            <div className="max-w-3xl mx-auto space-y-6 pt-4">
+              <section
+                className="rounded-[1.75rem] border p-6 shadow-sm"
+                style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-gray-400">History</p>
+                    <h3 className="mt-2 text-2xl font-bold">我的反馈</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('feedback')}
+                    className="inline-flex items-center justify-center rounded-2xl border px-4 py-2 text-sm font-medium transition-colors"
+                    style={{
+                      borderColor: darkMode ? '#30363d' : '#d1d5db',
+                      backgroundColor: darkMode ? '#21262d' : '#ffffff',
+                    }}
+                  >
+                    去反馈
+                  </button>
+                </div>
+              </section>
+
+              {myFeedbackLoading ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  正在加载我的反馈...
+                </div>
+              ) : myFeedbackError ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-red-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  {myFeedbackError}
+                </div>
+              ) : myFeedbackItems.length === 0 ? (
+                <div className="rounded-2xl px-6 py-10 text-center text-gray-500" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+                  暂无反馈记录
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {myFeedbackItems.map((item) => (
+                    <section
+                      key={item.id}
+                      className="rounded-[1.75rem] border p-6 shadow-sm"
+                      style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff', borderColor: darkMode ? '#30363d' : '#e5e7eb' }}
+                    >
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          <span
+                            className="inline-flex rounded-full px-3 py-1 text-xs font-semibold"
+                            style={getFeedbackStatusStyle(item.status)}
+                          >
+                            {getFeedbackStatusLabel(item.status)}
+                          </span>
+                        </div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">
+                          {formatFeedbackDateTime(item.created_at)}
+                        </div>
+                      </div>
+
+                      <div className="mt-4 rounded-2xl px-4 py-4 text-sm leading-7" style={{ backgroundColor: darkMode ? '#21262d' : '#f8fafc' }}>
+                        {item.content}
+                      </div>
+
+                      <div className="mt-4 rounded-2xl px-4 py-4" style={{ backgroundColor: darkMode ? '#1c2430' : '#f8fafc' }}>
+                        <p className="text-xs uppercase tracking-[0.18em] text-gray-400">Reply</p>
+                        <p className="mt-3 text-sm leading-7" style={{ color: darkMode ? '#d1d5db' : '#475569' }}>
+                          {item.reply?.trim() ? item.reply : '暂无回复'}
+                        </p>
+                      </div>
+
+                      <div className="mt-4 flex flex-col gap-1 text-xs text-gray-500 dark:text-gray-400 sm:flex-row sm:items-center sm:justify-between">
+                        <span>创建时间：{formatFeedbackDateTime(item.created_at) || '--'}</span>
+                        <span>修改时间：{formatFeedbackDateTime(item.modified_at) || '--'}</span>
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 

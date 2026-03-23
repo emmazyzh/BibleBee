@@ -4,7 +4,7 @@ import { parse as parseUrl } from 'node:url'
 import bootstrapHandler from '../api/bootstrap.js'
 import accountHandler from '../api/account.js'
 import clerkWebhookHandler, { config as clerkWebhookConfig } from '../api/clerk-webhook.js'
-import dbTestHandler from '../api/db-test.js'
+import feedbackHandler from '../api/feedback.js'
 import leaderboardHandler from '../api/leaderboard.js'
 import meHandler from '../api/me.js'
 import memorizationHandler from '../server/routes/memorization/index.js'
@@ -19,12 +19,13 @@ const port = Number(process.env.DEV_API_PORT || 3001)
 
 const routes = [
   { method: 'DELETE', pattern: /^\/api\/account\/?$/, handler: accountHandler },
+  { method: 'GET', pattern: /^\/api\/feedback\/?$/, handler: feedbackHandler },
+  { method: 'POST', pattern: /^\/api\/feedback\/?$/, handler: feedbackHandler },
   { method: 'GET', pattern: /^\/api\/me\/?$/, handler: meHandler },
   { method: 'GET', pattern: /^\/api\/bootstrap\/?$/, handler: bootstrapHandler },
   { method: 'GET', pattern: /^\/api\/leaderboard\/?$/, handler: leaderboardHandler },
   { method: 'GET', pattern: /^\/api\/static-data\/?$/, handler: staticDataHandler },
   { method: 'POST', pattern: /^\/api\/sync\/?$/, handler: syncHandler },
-  { method: 'GET', pattern: /^\/api\/db-test\/?$/, handler: dbTestHandler },
   { method: 'POST', pattern: /^\/api\/clerk-webhook\/?$/, handler: clerkWebhookHandler, rawBody: clerkWebhookConfig?.api?.bodyParser === false },
   { method: 'GET', pattern: /^\/api\/plans\/?$/, handler: plansHandler },
   { method: 'GET', pattern: /^\/api\/plans\/([^/]+)\/?$/, handler: planDetailHandler, paramNames: ['planId'] },
