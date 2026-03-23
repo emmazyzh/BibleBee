@@ -1,7 +1,7 @@
 import { getSql } from '../server/lib/db.js'
 import { getCurrentDbUser } from '../server/lib/current-user.js'
 import { ApiError } from '../server/lib/http.js'
-import { handleCors, sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../server/lib/api-utils.js'
 
 const DEFAULT_CH_VERSION = 'cuv'
 const DEFAULT_EN_VERSION = 'niv'

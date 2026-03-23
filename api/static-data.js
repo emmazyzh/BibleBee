@@ -1,5 +1,5 @@
 import { loadStaticJson } from '../server/lib/static-data.js'
-import { handleCors, sendJson } from './_utils.js'
+import { handleCors, sendJson } from '../server/lib/api-utils.js'
 
 export default async function handler(req, res) {
   if (handleCors(req, res)) return

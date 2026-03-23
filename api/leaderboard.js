@@ -1,5 +1,5 @@
 import { getSql } from '../server/lib/db.js'
-import { handleCors, sendError, sendJson, getBindings } from './_utils.js'
+import { handleCors, sendError, sendJson, getBindings } from '../server/lib/api-utils.js'
 
 export default async function handler(req, res) {
   if (handleCors(req, res)) return

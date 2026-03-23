@@ -1,6 +1,6 @@
 import { verifyWebhook } from '@clerk/backend/webhooks'
 import { deleteClerkUser, ensureClerkUsersTable, upsertClerkUser } from '../server/lib/users.js'
-import { handleCors, sendError, sendJson, toWebRequest, getBindings } from './_utils.js'
+import { handleCors, sendError, sendJson, toWebRequest, getBindings } from '../server/lib/api-utils.js'
 
 function getPrimaryEmail(data) {
   const emailAddresses = data.email_addresses || []

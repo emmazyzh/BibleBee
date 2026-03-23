@@ -1,7 +1,7 @@
 import { ApiError } from '../server/lib/http.js'
 import memorizationHandler from '../server/routes/memorization/index.js'
 import memorizationReviewHandler from '../server/routes/memorization/review.js'
-import { sendError } from './_utils.js'
+import { sendError } from '../server/lib/api-utils.js'
 
 function normalizePathname(url) {
   return new URL(url || '/api/memorization', 'http://localhost').pathname.replace(/\/+$/, '') || '/'

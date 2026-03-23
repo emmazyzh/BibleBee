@@ -2,7 +2,7 @@ import { ApiError } from '../server/lib/http.js'
 import planDetailHandler from '../server/routes/plans/detail.js'
 import plansHandler from '../server/routes/plans/index.js'
 import planSelectHandler from '../server/routes/plans/select.js'
-import { sendError } from './_utils.js'
+import { sendError } from '../server/lib/api-utils.js'
 
 function normalizePathname(url) {
   return new URL(url || '/api/plans', 'http://localhost').pathname.replace(/\/+$/, '') || '/'

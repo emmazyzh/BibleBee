@@ -1,4 +1,4 @@
-import { ApiError } from '../server/lib/http.js'
+import { ApiError } from './http.js'
 
 function getHeaderValue(value) {
   if (Array.isArray(value)) {
