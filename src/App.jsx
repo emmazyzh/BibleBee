@@ -1833,6 +1833,7 @@ function App() {
     ['userinfo', 'leaderboard', 'plan-detail', 'auth'].includes(activeTab)
   );
   const showMobileCompactHeader = isMobileLayout && !showMobileSearchLanding && !showMobileBackOnlyHeader && !showMobileMenuOnlyHeader;
+  const showMobileMemorizationHeader = isMobileLayout && activeTab === 'memorization';
   const hasMultipleCurrentVerses = currentVerseList.length > 1;
   const prevVerse = hasMultipleCurrentVerses
     ? currentVerseList[(currentVerseIndex - 1 + currentVerseList.length) % currentVerseList.length]
@@ -2658,7 +2659,16 @@ function App() {
   return (
     <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-[#0d1117] text-gray-100' : 'bg-gray-50 text-gray-800'}`}>
       {/* Header */}
-      <header className="sticky top-0 z-50 shadow-sm" style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}>
+      <header
+        className={`${showMobileMemorizationHeader ? 'fixed inset-x-0 top-0 z-50' : 'sticky top-0 z-50'} shadow-sm`}
+        style={{
+          backgroundColor: darkMode
+            ? (showMobileMemorizationHeader ? 'rgba(22,27,34,0.92)' : '#161b22')
+            : (showMobileMemorizationHeader ? 'rgba(255,255,255,0.92)' : '#ffffff'),
+          backdropFilter: showMobileMemorizationHeader ? 'blur(14px)' : undefined,
+          WebkitBackdropFilter: showMobileMemorizationHeader ? 'blur(14px)' : undefined,
+        }}
+      >
         <div className="container mx-auto px-4 py-3">
           <div className="hidden md:flex items-center justify-between gap-3">
             <div className="flex items-center space-x-2 min-w-0">
@@ -3014,7 +3024,7 @@ function App() {
           )}
 
           {activeTab === 'memorization' && (
-            <div className="h-[calc(100dvh-72px)] md:h-[calc(100vh-100px)] flex flex-col">
+            <div className={`${showMobileMemorizationHeader ? 'h-[100dvh]' : 'h-[calc(100dvh-72px)]'} md:h-[calc(100vh-100px)] flex flex-col`}>
               {showEmptyMemorizationState ? (
                 <div className="flex-1 flex flex-col items-center justify-center text-center px-6">
                   <div className="text-6xl mb-4">🎉</div>
@@ -3052,6 +3062,7 @@ function App() {
                     backgroundColor: darkMode ? '#161b22' : '#ffffff',
                     touchAction: isMobileLayout ? 'none' : 'auto',
                     overscrollBehavior: isMobileLayout ? 'none' : 'auto',
+                    paddingTop: showMobileMemorizationHeader ? 'calc(env(safe-area-inset-top, 0px) + 72px)' : undefined,
                     paddingBottom: isMobileLayout ? 'calc(env(safe-area-inset-bottom, 0px) + 12px)' : undefined,
                   }}
                 >
