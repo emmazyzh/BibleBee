@@ -1,4 +1,5 @@
 import { ApiError } from './http.js'
+import { readEnvList } from './env.js'
 
 function getHeaderValue(value) {
   if (Array.isArray(value)) {
@@ -90,20 +91,38 @@ function getRequestOrigin(req) {
   return normalizeOrigin(getHeaderValue(req.headers?.origin))
 }
 
-function applyCorsHeaders(req, res) {
+function getAllowedOrigins(bindings) {
+  return new Set(
+    readEnvList('FRONTEND_ORIGINS', bindings)
+      .map((origin) => normalizeOrigin(origin))
+      .filter(Boolean),
+  )
+}
+
+function applyCorsHeaders(req, res, bindings = getBindings()) {
   const requestOrigin = getRequestOrigin(req)
+  const allowedOrigins = getAllowedOrigins(bindings)
+  const isAllowedOrigin = requestOrigin ? allowedOrigins.has(requestOrigin) : true
 
   if (requestOrigin) {
-    res.setHeader('Access-Control-Allow-Origin', requestOrigin)
     res.setHeader('Vary', 'Origin')
+
+    if (isAllowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin)
+    }
   }
 
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization')
+  return { requestOrigin, isAllowedOrigin }
 }
 
-export function handleCors(req, res) {
-  applyCorsHeaders(req, res)
+export function handleCors(req, res, bindings = getBindings()) {
+  const { requestOrigin, isAllowedOrigin } = applyCorsHeaders(req, res, bindings)
+
+  if (requestOrigin && !isAllowedOrigin) {
+    return sendJson(res, { ok: false, error: 'Origin not allowed' }, 403)
+  }
 
   if ((req.method || 'GET').toUpperCase() === 'OPTIONS') {
     res.status(204)
