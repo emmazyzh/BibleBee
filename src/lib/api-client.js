@@ -4,8 +4,16 @@ const configuredApiBaseUrl =
     ? String(import.meta.env.VITE_API_BASE_URL).trim().replace(/\/+$/, '')
     : ''
 
+function shouldUseSameOriginProxy() {
+  if (typeof window === 'undefined') {
+    return false
+  }
+
+  return window.location.hostname.endsWith('pages.dev')
+}
+
 export function getApiBaseUrls() {
-  return [configuredApiBaseUrl || '']
+  return [shouldUseSameOriginProxy() ? '' : (configuredApiBaseUrl || '')]
 }
 
 export function setApiTokenProvider(provider) {
@@ -22,13 +30,13 @@ async function getAuthorizationHeaderValue() {
 }
 
 export async function fetchApiJson(path, options) {
-  const apiBaseUrl = configuredApiBaseUrl
+  const apiBaseUrl = shouldUseSameOriginProxy() ? '' : configuredApiBaseUrl
   const isBrowser = typeof window !== 'undefined'
   const requestUrl = isBrowser
     ? new URL(apiBaseUrl ? `${apiBaseUrl}${path}` : path, window.location.origin)
     : null
   const isSameOrigin = !requestUrl || requestUrl.origin === window.location.origin
-  const authorization = isSameOrigin ? '' : await getAuthorizationHeaderValue()
+  const authorization = await getAuthorizationHeaderValue()
   const method = String(options?.method || 'GET').toUpperCase()
   const shouldSendJsonContentType = method !== 'GET' && method !== 'HEAD'
   const response = await fetch(requestUrl ? requestUrl.toString() : path, {
