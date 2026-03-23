@@ -770,6 +770,7 @@ function App() {
   const [mobileDragX, setMobileDragX] = useState(0);
   const [isMobileDragAnimating, setIsMobileDragAnimating] = useState(false);
   const [mobileViewportWidth, setMobileViewportWidth] = useState(0);
+  const [mobileHeaderHeight, setMobileHeaderHeight] = useState(76);
   const [isMobileLayout, setIsMobileLayout] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth < 768 : false
   );
@@ -787,6 +788,7 @@ function App() {
   const syncTimeoutRef = useRef(null);
   const syncOverlayTimeoutRef = useRef(null);
   const mobileViewportRef = useRef(null);
+  const mobileHeaderRef = useRef(null);
   const touchDragMetaRef = useRef({ active: false, horizontal: false, startX: 0, startY: 0 });
   const pendingMobileFlipRef = useRef(0);
   const verseContentRef = useRef(null);
@@ -1843,6 +1845,35 @@ function App() {
     : null;
 
   useEffect(() => {
+    if (!showMobileMemorizationHeader) {
+      return;
+    }
+
+    const measureHeader = () => {
+      setMobileHeaderHeight(mobileHeaderRef.current?.offsetHeight || 76);
+    };
+
+    measureHeader();
+
+    const headerElement = mobileHeaderRef.current;
+    const resizeObserver = typeof ResizeObserver !== 'undefined' && headerElement
+      ? new ResizeObserver(() => measureHeader())
+      : null;
+
+    resizeObserver?.observe(headerElement);
+    window.addEventListener('resize', measureHeader);
+    window.visualViewport?.addEventListener('resize', measureHeader);
+    window.visualViewport?.addEventListener('scroll', measureHeader);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', measureHeader);
+      window.visualViewport?.removeEventListener('resize', measureHeader);
+      window.visualViewport?.removeEventListener('scroll', measureHeader);
+    };
+  }, [showMobileMemorizationHeader]);
+
+  useEffect(() => {
     if (!isMobileLayout || activeTab !== 'memorization' || !currentVerse) {
       setMobileFontLevel(0);
       return;
@@ -2660,6 +2691,7 @@ function App() {
     <div className={`min-h-screen transition-colors duration-300 ${darkMode ? 'dark bg-[#0d1117] text-gray-100' : 'bg-gray-50 text-gray-800'}`}>
       {/* Header */}
       <header
+        ref={showMobileMemorizationHeader ? mobileHeaderRef : null}
         className={`${showMobileMemorizationHeader ? 'fixed inset-x-0 top-0 z-50' : 'sticky top-0 z-50'} shadow-sm`}
         style={{
           backgroundColor: darkMode
@@ -2923,7 +2955,14 @@ function App() {
                 </button>
               </Show>
               <Show when="signed-out">
-                <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    openAuthPage('sign-in');
+                    setSidebarOpen(false);
+                  }}
+                  className={`flex w-full items-center space-x-2 rounded-xl px-2 py-2 text-left transition-colors ${darkMode ? 'hover:bg-[#21262d]' : 'hover:bg-gray-50'}`}
+                >
                   <div className="w-10 h-10 rounded-full bg-gray-300 dark:bg-gray-600 flex items-center justify-center">
                     <IconUser />
                   </div>
@@ -2931,7 +2970,7 @@ function App() {
                     <h3 className="font-medium">访客</h3>
                     <p className="text-sm text-gray-500 dark:text-gray-400">登录后同步进度</p>
                   </div>
-                </div>
+                </button>
               </Show>
             </div>
             <nav className="flex-1 p-4">
@@ -3062,7 +3101,7 @@ function App() {
                     backgroundColor: darkMode ? '#161b22' : '#ffffff',
                     touchAction: isMobileLayout ? 'none' : 'auto',
                     overscrollBehavior: isMobileLayout ? 'none' : 'auto',
-                    paddingTop: showMobileMemorizationHeader ? 'calc(env(safe-area-inset-top, 0px) + 72px)' : undefined,
+                    paddingTop: showMobileMemorizationHeader ? `${mobileHeaderHeight + 8}px` : undefined,
                     paddingBottom: isMobileLayout ? 'calc(env(safe-area-inset-bottom, 0px) + 12px)' : undefined,
                   }}
                 >
