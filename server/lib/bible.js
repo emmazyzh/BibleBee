@@ -13,18 +13,60 @@ function parseVerseId(verseId) {
 }
 
 function expandVerseSpec(verseSpec) {
-  if (verseSpec.includes('-')) {
-    const [start, end] = verseSpec.split('-').map(Number)
-    const verses = []
+  return String(verseSpec || '')
+    .split(',')
+    .flatMap((part) => {
+      const trimmedPart = part.trim()
 
-    for (let index = start; index <= end; index += 1) {
-      verses.push(String(index))
-    }
+      if (!trimmedPart) {
+        return []
+      }
 
-    return verses
+      if (trimmedPart.includes('-')) {
+        const [start, end] = trimmedPart.split('-').map(Number)
+        const verses = []
+
+        for (let index = start; index <= end; index += 1) {
+          verses.push(String(index))
+        }
+
+        return verses
+      }
+
+      return [trimmedPart]
+    })
+}
+
+function formatVerseNumbersForDisplay(verseNumbers) {
+  if (!Array.isArray(verseNumbers) || verseNumbers.length === 0) {
+    return ''
   }
 
-  return [verseSpec]
+  const normalizedNumbers = Array.from(new Set(
+    verseNumbers
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value)),
+  )).sort((left, right) => left - right)
+
+  const parts = []
+  let rangeStart = normalizedNumbers[0]
+  let previous = normalizedNumbers[0]
+
+  for (let index = 1; index <= normalizedNumbers.length; index += 1) {
+    const current = normalizedNumbers[index]
+    const isConsecutive = current === previous + 1
+
+    if (isConsecutive) {
+      previous = current
+      continue
+    }
+
+    parts.push(rangeStart === previous ? String(rangeStart) : `${rangeStart}-${previous}`)
+    rangeStart = current
+    previous = current
+  }
+
+  return parts.join(',')
 }
 
 function buildKeywords(chineseText) {
@@ -98,6 +140,7 @@ export async function getVerseDetails(verseId, bindings, versions = { english: '
   const verseNumbers = expandVerseSpec(verseSpec)
   const englishVersion = versions.english || 'niv'
   const chineseVersion = versions.chinese || 'cuv'
+  const displayVerseSpec = formatVerseNumbersForDisplay(verseNumbers)
 
   const english = verseNumbers
     .map((number) => chapterData[number]?.[englishVersion] || chapterData[number]?.esv || chapterData[number]?.niv || '')
@@ -116,8 +159,8 @@ export async function getVerseDetails(verseId, bindings, versions = { english: '
 
   return {
     id: verseId,
-    reference: `${book.bookEn} ${chapter}:${verseSpec}`,
-    referenceCN: `${book.bookZh} ${chapter}:${verseSpec}`,
+    reference: `${book.bookEn} ${chapter}:${displayVerseSpec}`,
+    referenceCN: `${book.bookZh} ${chapter}:${displayVerseSpec}`,
     english,
     chinese,
     chineseBlank,

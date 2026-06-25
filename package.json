@@ -4,9 +4,10 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:web": "vite",
     "dev:api": "node --env-file=.env.local scripts/dev-api.mjs",
-    "dev:all": "concurrently \"npm run dev:api\" \"npm run dev\"",
+    "dev:all": "npm run dev",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview"

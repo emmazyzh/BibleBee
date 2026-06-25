@@ -24,18 +24,18 @@ BibleBee 是一个基于 React + Vite 的圣经背诵应用。当前支持两种
 
 ## 2. 本地开发
 
-前端和本地 API 需要同时启动：
+`npm run dev` 现在会同时启动前端和本地 API：
 
 ```bash
 npm install
-npm run dev:all
+npm run dev
 ```
 
 也可以拆开运行：
 
 ```bash
 npm run dev:api
-npm run dev
+npm run dev:web
 ```
 
 默认地址：

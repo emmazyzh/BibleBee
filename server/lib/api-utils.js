@@ -46,7 +46,10 @@ async function getRequestBody(req, { rawBody = false } = {}) {
 
 export async function toWebRequest(req, options = {}) {
   const protocol = getHeaderValue(req.headers['x-forwarded-proto']) || 'http'
-  const host = getHeaderValue(req.headers.host) || 'localhost'
+  const host =
+    getHeaderValue(req.headers['x-forwarded-host']) ||
+    getHeaderValue(req.headers.host) ||
+    'localhost'
   const url = new URL(req.url || '/', `${protocol}://${host}`)
   const headers = new Headers()
 
@@ -91,9 +94,45 @@ function getRequestOrigin(req) {
   return normalizeOrigin(getHeaderValue(req.headers?.origin))
 }
 
+function isLoopbackHost(value) {
+  return value === 'localhost' || value === '127.0.0.1' || value === '0.0.0.0'
+}
+
+function isLocalDevRequest(req) {
+  const hostHeader = getHeaderValue(req.headers?.host)
+
+  if (!hostHeader) {
+    return false
+  }
+
+  try {
+    const url = new URL(`http://${hostHeader}`)
+    return isLoopbackHost(url.hostname)
+  } catch {
+    const hostname = hostHeader.split(':')[0]
+    return isLoopbackHost(hostname)
+  }
+}
+
+function getDefaultDevOrigins() {
+  return [
+    'http://localhost:3000',
+    'http://localhost:3001',
+    'http://localhost:5173',
+    'http://localhost:5174',
+    'http://127.0.0.1:3000',
+    'http://127.0.0.1:3001',
+    'http://127.0.0.1:5173',
+    'http://127.0.0.1:5174',
+  ]
+}
+
 function getAllowedOrigins(bindings) {
   return new Set(
-    readEnvList('FRONTEND_ORIGINS', bindings)
+    [
+      ...readEnvList('FRONTEND_ORIGINS', bindings),
+      ...getDefaultDevOrigins(),
+    ]
       .map((origin) => normalizeOrigin(origin))
       .filter(Boolean),
   )
@@ -102,7 +141,11 @@ function getAllowedOrigins(bindings) {
 function applyCorsHeaders(req, res, bindings = getBindings()) {
   const requestOrigin = getRequestOrigin(req)
   const allowedOrigins = getAllowedOrigins(bindings)
-  const isAllowedOrigin = requestOrigin ? allowedOrigins.has(requestOrigin) : true
+  const isAllowedOrigin = isLocalDevRequest(req)
+    ? true
+    : requestOrigin
+      ? allowedOrigins.has(requestOrigin)
+      : true
 
   if (requestOrigin) {
     res.setHeader('Vary', 'Origin')

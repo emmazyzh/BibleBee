@@ -190,6 +190,10 @@ const IconMessageSquare = () => (
   <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
 );
 
+const IconJump = () => (
+  <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10 14 21 3"/><path d="M21 10V3h-7"/><path d="M21 14v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h4"/></svg>
+);
+
 // 首字母模式组件
 function FirstLetterMode({ verse, darkMode, mobileFontLevel = 0 }) {
   const [revealedWords, setRevealedWords] = useState(new Set());
@@ -586,6 +590,11 @@ function buildBibleSearchResults(combinedData, query, versions = { chineseVersio
         ) {
           results.push({
             id: `${book.bookEn}_${chapterKey}_${verseKey}`,
+            bookKey: book.bookEn,
+            bookName: book.bookEn,
+            bookNameCN: book.bookZh,
+            chapterKey,
+            verseKey,
             reference,
             referenceCN,
             chinese,
@@ -597,6 +606,36 @@ function buildBibleSearchResults(combinedData, query, versions = { chineseVersio
   }
 
   return results.slice(0, 200);
+}
+
+function buildChapterVerses(combinedData, resultVerse, versions = { chineseVersion: DEFAULT_CHINESE_VERSION, englishVersion: DEFAULT_ENGLISH_VERSION }) {
+  if (!combinedData || !resultVerse?.bookKey || !resultVerse?.chapterKey) {
+    return [];
+  }
+
+  const chineseVersion = normalizeChineseVersion(versions.chineseVersion);
+  const englishVersion = normalizeEnglishVersion(versions.englishVersion);
+  const book = combinedData[resultVerse.bookKey];
+  const chapter = book?.chapters?.[resultVerse.chapterKey];
+
+  if (!book || !chapter) {
+    return [];
+  }
+
+  return Object.entries(chapter)
+    .sort(([left], [right]) => Number(left) - Number(right))
+    .map(([verseKey, verse]) => ({
+      id: `${resultVerse.bookKey}_${resultVerse.chapterKey}_${verseKey}`,
+      verseKey,
+      reference: `${book.bookEn} ${resultVerse.chapterKey}:${verseKey}`,
+      referenceCN: `${book.bookZh} ${resultVerse.chapterKey}:${verseKey}`,
+      chinese: verse?.[chineseVersion] || verse?.cuv || '',
+      english: verse?.[englishVersion] || verse?.niv || verse?.esv || '',
+    }));
+}
+
+function buildCombinedVerseId(bookKey, chapterKey, verseNumbers) {
+  return `${bookKey}_${chapterKey}_${verseNumbers.join(',')}`;
 }
 
 function getSearchTokens(query) {
@@ -711,6 +750,13 @@ function App() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchTestamentFilter, setSearchTestamentFilter] = useState('all');
   const [searchLoading, setSearchLoading] = useState(false);
+  const [searchActionError, setSearchActionError] = useState('');
+  const [showChapterPickerModal, setShowChapterPickerModal] = useState(false);
+  const [chapterPickerTarget, setChapterPickerTarget] = useState(null);
+  const [chapterPickerVerses, setChapterPickerVerses] = useState([]);
+  const [chapterPickerSelection, setChapterPickerSelection] = useState([]);
+  const [chapterPickerLoading, setChapterPickerLoading] = useState(false);
+  const [chapterPickerError, setChapterPickerError] = useState('');
   const [staticDataUpdating, setStaticDataUpdating] = useState(false);
   const [staticDataMessage, setStaticDataMessage] = useState('');
 
@@ -1593,6 +1639,10 @@ function App() {
       return;
     }
 
+    if (!isClerkLoaded || !user?.id) {
+      return;
+    }
+
     void (async () => {
       const cachedData = await getUserCache(user.id);
 
@@ -1615,7 +1665,7 @@ function App() {
 
       await loadBootstrapData(!cachedData);
     })();
-  }, [isUserLoaded, isSignedIn, user?.id]);
+  }, [isUserLoaded, isSignedIn, isClerkLoaded, user?.id]);
 
   useEffect(() => {
     const handlePageExit = () => {
@@ -2589,6 +2639,7 @@ function App() {
     const normalizedQuery = nextQuery.trim();
     if (!normalizedQuery) return;
 
+    setSearchActionError('');
     setSearchQuery(normalizedQuery);
     setShowSearchResults(true);
     setSearchTestamentFilter('all');
@@ -2614,19 +2665,91 @@ function App() {
   };
 
   const handleQuickKeywordSearch = (keyword) => {
+    setSearchActionError('');
     setSearchQuery(keyword);
     handleSearch(keyword);
   };
 
-  const addVerseToList = async (verse) => {
+  const closeChapterPickerModal = ({ force = false } = {}) => {
+    if (!force && chapterPickerLoading) return;
+    setShowChapterPickerModal(false);
+    setChapterPickerTarget(null);
+    setChapterPickerVerses([]);
+    setChapterPickerSelection([]);
+    setChapterPickerError('');
+    setSearchActionError('');
+  };
+
+  const openChapterPickerModal = async (verse) => {
     if (!verse) return;
 
+    try {
+      setChapterPickerLoading(true);
+      setChapterPickerError('');
+      setSearchActionError('');
+
+      let combinedData = staticDataRef.current.combined || await getStaticJson('combined');
+
+      if (!combinedData) {
+        setDataDownloadOverlay({ visible: true, text: '圣经数据下载中' });
+        await ensureStaticJsonCached('combined');
+        combinedData = await getStaticJson('combined');
+      }
+
+      const chapterVerses = buildChapterVerses(combinedData, verse, settings);
+
+      if (chapterVerses.length === 0) {
+        throw new Error('该章节内容暂时无法读取');
+      }
+
+      staticDataRef.current = {
+        ...staticDataRef.current,
+        combined: combinedData,
+      };
+
+      setChapterPickerTarget(verse);
+      setChapterPickerVerses(chapterVerses);
+      setChapterPickerSelection([verse.verseKey]);
+      setShowChapterPickerModal(true);
+    } catch (error) {
+      setChapterPickerError(error.message || '打开章节失败');
+      setShowChapterPickerModal(true);
+      setChapterPickerTarget(verse);
+      setChapterPickerVerses([]);
+      setChapterPickerSelection([]);
+    } finally {
+      setDataDownloadOverlay({ visible: false, text: '' });
+      setChapterPickerLoading(false);
+    }
+  };
+
+  const toggleChapterPickerVerse = (verseKey) => {
+    if (!verseKey) return;
+
+    setChapterPickerSelection((prev) => {
+      if (prev.includes(verseKey)) {
+        return prev.filter((item) => item !== verseKey);
+      }
+
+      if (prev.length >= 3) {
+        return prev;
+      }
+
+      return [...prev, verseKey].sort((left, right) => Number(left) - Number(right));
+    });
+  };
+
+  const addVerseToList = async (verse) => {
+    if (!verse) return false;
+
     if (!isSignedIn) {
-      setActiveTab('auth');
-      return;
+      setSearchActionError('请先登陆，再添加背诵经文');
+      setChapterPickerError('请先登陆，再添加背诵经文');
+      return false;
     }
 
     try {
+      setSearchActionError('');
       setSearchLoading(true);
       const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
       setMemorizationData(nextMemorizationData);
@@ -2640,20 +2763,46 @@ function App() {
         payload: {
           verseId: verse.id,
         },
-      }, { immediate: true });
-      await loadBootstrapData(false);
-      const reorderedMemorizationData = moveActiveVerseToFront(cacheSnapshotRef.current.memorizationData, verse.id);
-      setMemorizationData(reorderedMemorizationData);
-      await persistUserSnapshot({ memorizationData: reorderedMemorizationData });
-      cacheSnapshotRef.current = {
-        ...cacheSnapshotRef.current,
-        memorizationData: reorderedMemorizationData,
-      };
+      });
+      void syncPendingOperationsToServer().catch(() => {
+        schedulePendingSync();
+      });
       setCurrentVerseIndex(0);
+      return true;
     } catch (error) {
       setMemorizationError(error.message);
+      return false;
     } finally {
       setSearchLoading(false);
+    }
+  };
+
+  const handleAddSelectedChapterVerses = async () => {
+    if (!chapterPickerTarget || chapterPickerSelection.length === 0) {
+      setChapterPickerError('请先选择至少 1 节经文');
+      return;
+    }
+
+    try {
+      setChapterPickerError('');
+      const staticData = await getStaticDataSnapshot({ requireCombined: true });
+      const verseId = buildCombinedVerseId(
+        chapterPickerTarget.bookKey,
+        chapterPickerTarget.chapterKey,
+        chapterPickerSelection,
+      );
+      const verse = getVerseDetailsFromStaticData(verseId, staticData.combined, staticData.frequent, {
+        english: settings.englishVersion,
+        chinese: settings.chineseVersion,
+      });
+
+      const added = await addVerseToList(verse);
+
+      if (added) {
+        closeChapterPickerModal({ force: true });
+      }
+    } catch (error) {
+      setChapterPickerError(error.message || '加入闪卡失败');
     }
   };
 
@@ -3572,6 +3721,9 @@ function App() {
                   </div>
 
                   <div className="space-y-4 max-w-3xl mx-auto">
+                    {searchActionError && (
+                      <p className="px-4 text-sm text-red-500 md:px-0">{searchActionError}</p>
+                    )}
                     {searchLoading ? (
                       <p className="text-gray-500 text-center py-10">正在搜索经文...</p>
                     ) : filteredSearchResults.length === 0 ? (
@@ -3584,12 +3736,28 @@ function App() {
                               <h3 className="text-xl font-bold text-primary">{verse.referenceCN}</h3>
                               <p className="text-sm text-gray-500 mt-1">{verse.reference}</p>
                             </div>
-                            <button
-                              onClick={() => addVerseToList(verse)}
-                              className="px-5 py-2 bg-primary text-white rounded-full text-sm hover:bg-blue-600 transition-colors"
-                            >
-                              加入我的背诵
-                            </button>
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void openChapterPickerModal(verse)}
+                                className={`inline-flex items-center justify-center rounded-full p-2 transition-colors ${
+                                  darkMode
+                                    ? 'bg-[#21262d] text-blue-200 hover:bg-[#30363d]'
+                                    : 'bg-blue-50 text-primary hover:bg-blue-100'
+                                }`}
+                                title="跳转到整章选经文"
+                                aria-label={`查看 ${verse.bookNameCN || verse.referenceCN} 整章`}
+                              >
+                                <IconJump />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => addVerseToList(verse)}
+                                className="px-5 py-2 bg-primary text-white rounded-full text-sm hover:bg-blue-600 transition-colors"
+                              >
+                                加入我的背诵
+                              </button>
+                            </div>
                           </div>
                           <div className="space-y-3">
                             <p className="text-lg leading-relaxed" style={{ color: darkMode ? '#ffffff' : '#1f2937' }}>
@@ -5001,6 +5169,135 @@ function App() {
           )}
         </main>
       </div>
+
+      {showChapterPickerModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4">
+          <div
+            className="flex max-h-[85vh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl shadow-2xl"
+            style={{ backgroundColor: darkMode ? '#161b22' : '#ffffff' }}
+          >
+            <div className="border-b px-6 py-5" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-primary">
+                    {chapterPickerTarget?.bookNameCN} {chapterPickerTarget?.chapterKey} 章
+                  </h3>
+                  <p className="mt-1 text-sm text-gray-500">
+                    最多选择 3 节经文，合并加入 1 张闪卡
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeChapterPickerModal}
+                  className="rounded-full px-3 py-1.5 text-sm transition-colors"
+                  style={{
+                    backgroundColor: darkMode ? '#21262d' : '#f3f4f6',
+                    color: darkMode ? '#e5e7eb' : '#374151',
+                  }}
+                >
+                  关闭
+                </button>
+              </div>
+
+              {chapterPickerSelection.length > 0 && (
+                <p className="mt-3 text-sm" style={{ color: darkMode ? '#cbd5e1' : '#475569' }}>
+                  已选：{chapterPickerTarget?.bookNameCN} {chapterPickerTarget?.chapterKey}:{chapterPickerSelection.join(',')}
+                </p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              {chapterPickerLoading ? (
+                <p className="py-10 text-center text-gray-500">正在加载整章经文...</p>
+              ) : chapterPickerError && chapterPickerVerses.length === 0 ? (
+                <p className="py-10 text-center text-red-500">{chapterPickerError}</p>
+              ) : (
+                <div className="space-y-3">
+                  {chapterPickerVerses.map((verse) => {
+                    const isSelected = chapterPickerSelection.includes(verse.verseKey);
+                    const selectionLimitReached = chapterPickerSelection.length >= 3 && !isSelected;
+
+                    return (
+                      <button
+                        key={verse.id}
+                        type="button"
+                        onClick={() => toggleChapterPickerVerse(verse.verseKey)}
+                        disabled={selectionLimitReached}
+                        className={`w-full rounded-2xl border px-4 py-4 text-left transition-colors ${
+                          selectionLimitReached ? 'cursor-not-allowed opacity-60' : ''
+                        }`}
+                        style={{
+                          borderColor: isSelected
+                            ? '#2563eb'
+                            : darkMode
+                              ? '#30363d'
+                              : '#e5e7eb',
+                          backgroundColor: isSelected
+                            ? (darkMode ? 'rgba(37,99,235,0.18)' : '#eff6ff')
+                            : (darkMode ? '#0f172a' : '#ffffff'),
+                        }}
+                      >
+                        <div className="flex items-center justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-primary">{verse.referenceCN}</p>
+                            <p className="mt-2 text-base leading-7" style={{ color: darkMode ? '#f8fafc' : '#1f2937' }}>
+                              {renderHighlightedText(verse.chinese, searchQuery)}
+                            </p>
+                            <p className="mt-2 text-sm italic leading-6" style={{ color: darkMode ? '#9ca3af' : '#4b5563' }}>
+                              {renderHighlightedText(verse.english, searchQuery)}
+                            </p>
+                          </div>
+                          <span
+                            className="shrink-0 rounded-full px-3 py-1 text-xs font-semibold"
+                            style={{
+                              backgroundColor: isSelected
+                                ? '#2563eb'
+                                : darkMode
+                                  ? '#21262d'
+                                  : '#f3f4f6',
+                              color: isSelected
+                                ? '#ffffff'
+                                : darkMode
+                                  ? '#cbd5e1'
+                                  : '#475569',
+                            }}
+                          >
+                            {isSelected ? '已选' : selectionLimitReached ? '最多 3 节' : '选择'}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div className="border-t px-6 py-4" style={{ borderColor: darkMode ? '#30363d' : '#e5e7eb' }}>
+              {chapterPickerError && chapterPickerVerses.length > 0 && (
+                <p className="mb-3 text-sm text-red-500">{chapterPickerError}</p>
+              )}
+              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                <button
+                  type="button"
+                  onClick={closeChapterPickerModal}
+                  className="rounded-xl border px-4 py-3 font-medium transition-colors"
+                  style={{ borderColor: darkMode ? '#30363d' : '#d1d5db', backgroundColor: darkMode ? '#21262d' : '#ffffff' }}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleAddSelectedChapterVerses()}
+                  disabled={chapterPickerLoading || searchLoading || chapterPickerSelection.length === 0}
+                  className="rounded-xl bg-primary px-4 py-3 font-medium text-white transition-colors hover:bg-blue-600 disabled:opacity-60"
+                >
+                  {searchLoading ? '加入中...' : `加入 1 张多节闪卡${chapterPickerSelection.length > 0 ? `（${chapterPickerSelection.length} 节）` : ''}`}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showSelectPlanModal && selectedPlan && (
         <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
