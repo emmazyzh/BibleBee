@@ -1372,16 +1372,22 @@ function App() {
   };
 
   const queuePendingOperation = async (operation, { immediate = false } = {}) => {
-    if (!user?.id) return;
+    if (!user?.id) return false;
 
     await addPendingOperation(user.id, operation);
 
     if (immediate) {
-      await syncPendingOperationsToServer();
-      return;
+      try {
+        await syncPendingOperationsToServer();
+        return true;
+      } catch {
+        schedulePendingSync();
+        return false;
+      }
     }
 
     schedulePendingSync();
+    return true;
   };
 
   const handleManualMemorizationSync = async () => {
@@ -2750,6 +2756,7 @@ function App() {
 
     try {
       setSearchActionError('');
+      setMemorizationError('');
       setSearchLoading(true);
       const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
       setMemorizationData(nextMemorizationData);
@@ -2758,15 +2765,15 @@ function App() {
       setShowSearchResults(false);
       setSearchQuery('');
       await persistUserSnapshot({ memorizationData: nextMemorizationData });
-      await queuePendingOperation({
+      const syncSucceeded = await queuePendingOperation({
         type: 'addVerse',
         payload: {
           verseId: verse.id,
         },
-      });
-      void syncPendingOperationsToServer().catch(() => {
-        schedulePendingSync();
-      });
+      }, { immediate: true });
+      if (!syncSucceeded) {
+        setMemorizationError('已加入闪卡，云端同步稍后重试');
+      }
       setCurrentVerseIndex(0);
       return true;
     } catch (error) {
@@ -2813,11 +2820,13 @@ function App() {
       const nextMemorizationData = applyAddVerseMutation(memorizationData, verse);
       setMemorizationData(nextMemorizationData);
       await persistUserSnapshot({ memorizationData: nextMemorizationData });
-      await queuePendingOperation({
+      const syncSucceeded = await queuePendingOperation({
         type: 'addVerse',
         payload: { verseId: verse.id || verse.verseId },
       }, { immediate: true });
-      await loadBootstrapData(false);
+      if (!syncSucceeded) {
+        setMemorizationError('已加入闪卡，云端同步稍后重试');
+      }
     } catch (error) {
       setMemorizationError(error.message);
     }
@@ -2830,18 +2839,21 @@ function App() {
     if (!confirmed) return;
 
     try {
+      setMemorizationError('');
       const verseId = verse.id || verse.verseId;
       const nextMemorizationData = applyRemoveVerseMutation(memorizationData, verseId);
       setMemorizationData(nextMemorizationData);
       await persistUserSnapshot({ memorizationData: nextMemorizationData });
-      await queuePendingOperation({
+      const syncSucceeded = await queuePendingOperation({
         type: 'removeVerse',
         payload: { verseId },
       }, { immediate: true });
+      if (!syncSucceeded) {
+        setMemorizationError('已删除闪卡，云端同步稍后重试');
+      }
       if ((currentVerse?.id || currentVerse?.verseId) === verseId) {
         setCurrentVerseIndex(0);
       }
-      await loadBootstrapData(false);
     } catch (error) {
       setMemorizationError(error.message);
     }
@@ -3415,32 +3427,57 @@ function App() {
                   }}
                 >
                 {isSignedIn && (
-                  <button
-                    type="button"
-                    aria-label="同步背诵进度"
-                    onClick={() => void handleManualMemorizationSync()}
-                    disabled={manualSyncing}
-                    className={`group absolute right-3 top-3 md:right-4 md:top-4 z-20 inline-flex items-center justify-center rounded-full p-2 transition-all ${
-                      manualSyncing
-                        ? 'cursor-wait opacity-60'
-                        : darkMode
-                          ? 'text-blue-300 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
-                          : 'text-blue-400 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
-                    }`}
-                  >
-                    <IconSync />
-                    {!manualSyncing && (
-                      <span
-                        className="pointer-events-none absolute top-full left-0 mt-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100 md:left-auto md:right-full md:top-full md:mr-2"
-                        style={{
-                          backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
-                          color: '#f8fafc',
-                        }}
+                  <div className="absolute right-3 top-3 z-20 flex items-center gap-2 md:right-4 md:top-4">
+                    {currentVerse && (
+                      <button
+                        type="button"
+                        aria-label="删除当前闪卡"
+                        onClick={() => void handleRemoveFromFlashcards(currentVerse)}
+                        className={`group relative inline-flex items-center justify-center rounded-full p-2 transition-all ${
+                          darkMode
+                            ? 'text-red-300 bg-white hover:bg-red-50 hover:text-red-500 hover:shadow-sm'
+                            : 'text-red-400 bg-white hover:bg-red-50 hover:text-red-500 hover:shadow-sm'
+                        }`}
                       >
-                        同步背诵进度
-                      </span>
+                        <IconTrash />
+                        <span
+                          className="pointer-events-none absolute top-full right-0 mt-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+                          style={{
+                            backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
+                            color: '#f8fafc',
+                          }}
+                        >
+                          删除当前闪卡
+                        </span>
+                      </button>
                     )}
-                  </button>
+                    <button
+                      type="button"
+                      aria-label="同步背诵进度"
+                      onClick={() => void handleManualMemorizationSync()}
+                      disabled={manualSyncing}
+                      className={`group relative inline-flex items-center justify-center rounded-full p-2 transition-all ${
+                        manualSyncing
+                          ? 'cursor-wait opacity-60'
+                          : darkMode
+                            ? 'text-blue-300 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
+                            : 'text-blue-400 bg-white hover:bg-blue-50 hover:text-blue-500 hover:shadow-sm'
+                      }`}
+                    >
+                      <IconSync />
+                      {!manualSyncing && (
+                        <span
+                          className="pointer-events-none absolute top-full right-0 mt-1 whitespace-nowrap rounded-md px-2 py-1 text-[11px] opacity-0 transition-opacity duration-100 group-hover:opacity-100"
+                          style={{
+                            backgroundColor: darkMode ? 'rgba(15,23,42,0.85)' : 'rgba(15,23,42,0.78)',
+                            color: '#f8fafc',
+                          }}
+                        >
+                          同步背诵进度
+                        </span>
+                      )}
+                    </button>
+                  </div>
                 )}
                 {syncOverlay.visible && (
                   <div className="pointer-events-none fixed inset-0 z-40 flex items-center justify-center px-6">
@@ -5291,7 +5328,7 @@ function App() {
                   disabled={chapterPickerLoading || searchLoading || chapterPickerSelection.length === 0}
                   className="rounded-xl bg-primary px-4 py-3 font-medium text-white transition-colors hover:bg-blue-600 disabled:opacity-60"
                 >
-                  {searchLoading ? '加入中...' : `加入 1 张多节闪卡${chapterPickerSelection.length > 0 ? `（${chapterPickerSelection.length} 节）` : ''}`}
+                  {searchLoading ? '加入中...' : `加入闪卡${chapterPickerSelection.length > 0 ? `（${chapterPickerSelection.length} 节）` : ''}`}
                 </button>
               </div>
             </div>

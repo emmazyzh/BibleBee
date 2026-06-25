@@ -94,12 +94,36 @@ function getRequestOrigin(req) {
   return normalizeOrigin(getHeaderValue(req.headers?.origin))
 }
 
+function isPrivateIpv4Host(value) {
+  if (!value) {
+    return false
+  }
+
+  if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(value)) {
+    return true
+  }
+
+  if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(value)) {
+    return true
+  }
+
+  const match = value.match(/^172\.(\d{1,2})\.\d{1,3}\.\d{1,3}$/)
+  if (!match) {
+    return false
+  }
+
+  const secondOctet = Number(match[1])
+  return secondOctet >= 16 && secondOctet <= 31
+}
+
 function isLoopbackHost(value) {
   return value === 'localhost' || value === '127.0.0.1' || value === '0.0.0.0'
 }
 
 function isLocalDevRequest(req) {
-  const hostHeader = getHeaderValue(req.headers?.host)
+  const hostHeader =
+    getHeaderValue(req.headers?.['x-forwarded-host']) ||
+    getHeaderValue(req.headers?.host)
 
   if (!hostHeader) {
     return false
@@ -107,10 +131,10 @@ function isLocalDevRequest(req) {
 
   try {
     const url = new URL(`http://${hostHeader}`)
-    return isLoopbackHost(url.hostname)
+    return isLoopbackHost(url.hostname) || isPrivateIpv4Host(url.hostname)
   } catch {
     const hostname = hostHeader.split(':')[0]
-    return isLoopbackHost(hostname)
+    return isLoopbackHost(hostname) || isPrivateIpv4Host(hostname)
   }
 }
 
